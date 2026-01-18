@@ -60,15 +60,16 @@ const srcPattern = (type) =>
 // create a task simply copying files
 function createCopyTask(type) {
   const dest = destDir(type);
-  return gulp.task("build:" + type, function () {
-    return gulp.src(srcPattern(type)).pipe(changed(dest)).pipe(gulp.dest(dest));
+  return gulp.task("build:" + type, function (done) {
+    return gulp.src(srcPattern(type)).pipe(changed(dest)).pipe(gulp.dest(dest))
+      .on("finish", () => done());
   });
 }
 createCopyTask("fonts");
 createCopyTask("resources");
 
 // Build HTML
-function buildHtml(isDevelopment) {
+function buildHtml(isDevelopment, done) {
   return gulp
     .src(srcPattern("html"))
     .pipe(
@@ -93,13 +94,14 @@ function buildHtml(isDevelopment) {
           : VIEWER_HTML_FILES.production,
       ),
     )
-    .pipe(gulp.dest(destDir("html")));
+    .pipe(gulp.dest(destDir("html")))
+    .on("finish", () => done());
 }
-gulp.task("build:html", () => buildHtml(false));
-gulp.task("build:html-dev", () => buildHtml(true));
+gulp.task("build:html", function(done) { return buildHtml(false, done); });
+gulp.task("build:html-dev", function(done) { return buildHtml(true, done); });
 
 // Build CSS
-function buildCss(isDevelopment) {
+function buildCss(isDevelopment, done) {
   return gulp
     .src(srcPattern("css"))
     .pipe(
@@ -121,10 +123,11 @@ function buildCss(isDevelopment) {
         outputStyle: isDevelopment ? "expanded" : "compressed",
       }).on("error", sass.logError),
     )
-    .pipe(gulp.dest(path.resolve(destDir("css"))));
+    .pipe(gulp.dest(path.resolve(destDir("css"))))
+    .on("finish", () => done());
 }
-gulp.task("build:css", () => buildCss(false));
-gulp.task("build:css-dev", () => buildCss(true));
+gulp.task("build:css", function(done) { return buildCss(false, done); });
+gulp.task("build:css-dev", function(done) { return buildCss(true, done); });
 
 // build all
 gulp.task(
