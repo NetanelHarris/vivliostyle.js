@@ -4,8 +4,8 @@
   "version": "2.40.0",
   "author": "Yasuaki Uechi <y@uechi.io>",
   "scripts": {
-    "build": "microbundle --format modern,cjs && shx rm -rf dist/stories",
-    "build-dev": "microbundle --no-compress --format cjs",
+    "build": "bunx microbundle --format modern,cjs && bunx shx rm -rf dist/stories",
+    "build-dev": "bunx microbundle --no-compress --format cjs",
     "build-storybook": "storybook build",
     "clean": "shx rm -rf dist",
     "dev": "yarn storybook",
