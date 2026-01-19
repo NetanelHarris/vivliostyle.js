@@ -22,3 +22,6 @@ export * from "./vivliostyle/profile";
 export * from "./vivliostyle/core-viewer";
 export * from "./vivliostyle/print";
 export * from "./vivliostyle/assets";
+
+// Import plugins (side-effect imports for auto-initialization)
+import "./vivliostyle/torah-window";

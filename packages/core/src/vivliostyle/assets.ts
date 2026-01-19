@@ -367,6 +367,7 @@ right = APLENGTH;
 table-layout = auto | fixed;
 text-align = left | right | center | justify | start | end | match-parent | inside | outside;
 text-indent = PLENGTH;
+hanging-indent = none | first-word;
 text-transform = capitalize | uppercase | lowercase | none;
 top = APLENGTH;
 vertical-align = baseline | sub | super | top | text-top | middle | bottom | text-bottom | PLENGTH;

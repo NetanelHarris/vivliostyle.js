@@ -186,6 +186,19 @@ module.exports = [
     ],
   },
   {
+    category: "Torah Window (hanging-indent)",
+    files: [
+      {
+        file: "torah-window-test.html",
+        title: "Torah Window - Hebrew RTL",
+      },
+      {
+        file: "torah-window-ltr-test.html",
+        title: "Torah Window - English LTR",
+      },
+    ],
+  },
+  {
     category: "Spread inside/outside properties",
     files: [
       {
