@@ -303,11 +303,11 @@ CONTENT_LIST = [ STRING | URI | counter(IDENT LIST_STYLE_TYPE?) |
     target-counter(ATTR IDENT LIST_STYLE_TYPE?) |
     target-counters([ STRING | URI ] IDENT STRING LIST_STYLE_TYPE?) |
     target-counters(ATTR IDENT STRING LIST_STYLE_TYPE?) |
-    target-text([ STRING | URI ] [content | before | after | first-letter | marker]?) |
-    target-text(ATTR [content | before | after | first-letter | marker]?) |
+    target-text([ STRING | URI ] [content | before | after | first-letter | first-word | marker]?) |
+    target-text(ATTR [content | before | after | first-letter | first-word | marker]?) |
     leader([ dotted | solid | space ] | STRING ) |
     open-quote | close-quote | no-open-quote | no-close-quote |
-    content([ text | before | after | first-letter | marker ]?) |
+    content([ text | before | after | first-letter | first-word | marker ]?) |
     string(IDENT [first | start | last | first-except]?) |
     element(IDENT [first | start | last | first-except]?) ]+;
 CONTENT = normal | none | CONTENT_LIST;
