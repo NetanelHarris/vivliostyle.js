@@ -2600,6 +2600,22 @@ export class ContentPropVisitor extends Css.FilterVisitor {
           stringValue = r ? r[0] : "";
         }
         break;
+      case "first-word":
+        {
+          // Respect ::before/after pseudo-elements (Issue #1174)
+          const pseudos = getStyleMap(this.cascade.currentStyle, "_pseudos");
+          const r = (
+            getStringValueFromCssContentVal(
+              (pseudos?.["before"]?.["content"] as CascadeValue)?.value,
+            ) ||
+            this.element.textContent ||
+            getStringValueFromCssContentVal(
+              (pseudos?.["after"]?.["content"] as CascadeValue)?.value,
+            )
+          ).match(Base.firstWordPattern);
+          stringValue = r ? r[0] : "";
+        }
+        break;
     }
     return new Css.Str(stringValue);
   }
@@ -4553,6 +4569,7 @@ export class CascadeParserHandler
       case "after":
       case "first-line":
       case "first-letter":
+      case "first-word":
         this.pseudoelementSelector(name, params);
         return;
       default: // always fails
@@ -4571,6 +4588,7 @@ export class CascadeParserHandler
       case "after":
       case "first-line":
       case "first-letter":
+      case "first-word":
       case "footnote-call":
       case "footnote-marker":
       case "marker":
