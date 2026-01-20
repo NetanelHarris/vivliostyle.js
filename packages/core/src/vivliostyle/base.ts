@@ -39,6 +39,14 @@ export const browserType: "chromium" | "firefox" | "webkit" | "unknown" =
  */
 export const firstLetterPattern =
   /^[\s\p{Zs}\p{P}\p{Mn}]*[\p{L}\p{N}]\p{Mn}*(?:[\s\p{Zs}]*\p{P}\p{Mn}*)*/u;
+
+/**
+ * RegExp pattern for ::first-word pseudo element
+ * Matches: leading punctuation + word + trailing punctuation
+ */
+export const firstWordPattern =
+  /^[\s\p{Zs}\p{P}\p{Mn}]*[\p{L}\p{N}][\p{L}\p{N}\p{Mn}]*(?:[\s\p{Zs}]*\p{P}\p{Mn}*)*/u;
+
 /**
  * Indicates the offset position of an element in a document
  */

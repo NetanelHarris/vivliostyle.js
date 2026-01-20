@@ -43,6 +43,7 @@ export const pseudoNames = [
   "first-2-lines",
   "first-line",
   "first-letter",
+  "first-word",
   "before",
   "",
   /* content */
@@ -84,7 +85,7 @@ export class PseudoelementStyler implements PseudoElement.PseudoelementStyler {
     if (pseudoName.match(/^first-/) && !style["x-first-pseudo"]) {
       let nest = 1;
       let r: RegExpMatchArray;
-      if (pseudoName == "first-letter") {
+      if (pseudoName == "first-letter" || pseudoName == "first-word") {
         nest = 0;
       } else if ((r = pseudoName.match(/^first-([0-9]+)-lines$/)) != null) {
         nest = (r[1] as any) - 0;
