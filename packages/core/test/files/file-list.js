@@ -243,7 +243,7 @@ module.exports = [
     ],
   },
   {
-    category: "Torah Window (hanging-indent)",
+    category: "Torah Books",
     files: [
       {
         file: "torah-window-test.html",
@@ -252,6 +252,10 @@ module.exports = [
       {
         file: "torah-window-ltr-test.html",
         title: "Torah Window - English LTR",
+      },
+      {
+        file: "first-word-test.html",
+        title: "Torah Books - styling first word",
       },
     ],
   },

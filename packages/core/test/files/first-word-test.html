@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>::first-word Pseudo-element Test</title>
+  <style>
+    body {
+      font-family: Georgia, serif;
+      line-height: 1.6;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+    }
+
+    h1 {
+      color: #333;
+      border-bottom: 2px solid #333;
+      padding-bottom: 10px;
+    }
+
+    h2 {
+      color: #666;
+      margin-top: 30px;
+    }
+
+    .test-section {
+      margin: 20px 0;
+      padding: 20px;
+      border: 1px solid #ddd;
+      background: #f9f9f9;
+    }
+
+    /* Test 1: Basic first-word styling */
+    .test1 p::first-word {
+      font-weight: bold;
+      color: #c00;
+      font-size: 1.2em;
+    }
+
+    /* Test 2: First-word with background */
+    .test2 p::first-word {
+      background-color: yellow;
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+
+    /* Test 3: First-word with different font */
+    .test3 p::first-word {
+      font-family: 'Courier New', monospace;
+      font-weight: bold;
+      color: #00c;
+      text-transform: uppercase;
+    }
+
+    /* Test 4: First-word with text decoration */
+    .test4 p::first-word {
+      text-decoration: underline;
+      text-decoration-color: #0c0;
+      text-decoration-thickness: 2px;
+      color: #0c0;
+    }
+
+    /* Test 5: First-word with letter-spacing */
+    .test5 p::first-word {
+      letter-spacing: 3px;
+      font-variant: small-caps;
+      color: #c0c;
+    }
+
+    /* Test 6: Combining first-word with first-letter */
+    .test6 p::first-letter {
+      font-size: 3em;
+      float: left;
+      line-height: 0.8;
+      margin-right: 5px;
+      color: #900;
+    }
+    .test6 p::first-word {
+      font-weight: bold;
+      color: #c00;
+    }
+
+    /* Test 7: First-word with punctuation */
+    .test7 p::first-word {
+      font-weight: bold;
+      color: #06c;
+      font-style: italic;
+    }
+
+    /* Test 8: First-word in RTL text */
+    .test8 p {
+      direction: rtl;
+      text-align: right;
+    }
+    .test8 p::first-word {
+      font-weight: bold;
+      color: #c60;
+      font-size: 1.3em;
+    }
+
+    /* Test 9: First-word with Unicode characters */
+    .test9 p::first-word {
+      font-weight: bold;
+      color: #c0c;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+    }
+
+    /* Test 10: First-word in nested elements */
+    .test10 p::first-word {
+      background: linear-gradient(to right, #f00, #00f);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      font-weight: bold;
+      font-size: 1.3em;
+    }
+  </style>
+</head>
+<body>
+  <h1>::first-word Pseudo-element Test Suite</h1>
+  
+  <p><strong>Instructions:</strong> This page tests the new <code>::first-word</code> pseudo-element implementation. 
+  The first word of each paragraph should be styled according to the test case description.</p>
+
+  <div class="test-section test1">
+    <h2>Test 1: Basic Styling</h2>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. The first word should be bold, red, and slightly larger.</p>
+    <p>Another paragraph to test consistency. Each paragraph's first word should be styled independently.</p>
+  </div>
+
+  <div class="test-section test2">
+    <h2>Test 2: Background Color</h2>
+    <p>Highlighted first word with yellow background. This tests background-color property on the pseudo-element.</p>
+  </div>
+
+  <div class="test-section test3">
+    <h2>Test 3: Font Family Change</h2>
+    <p>Monospace first word in uppercase. This tests font-family and text-transform properties.</p>
+  </div>
+
+  <div class="test-section test4">
+    <h2>Test 4: Text Decoration</h2>
+    <p>Underlined first word in green. This tests text-decoration properties on the pseudo-element.</p>
+  </div>
+
+  <div class="test-section test5">
+    <h2>Test 5: Letter Spacing</h2>
+    <p>Spaced small-caps first word. This tests letter-spacing and font-variant properties.</p>
+  </div>
+
+  <div class="test-section test6">
+    <h2>Test 6: Combining with ::first-letter</h2>
+    <p>Drop cap with styled first word. This tests interaction between ::first-letter and ::first-word pseudo-elements.</p>
+  </div>
+
+  <div class="test-section test7">
+    <h2>Test 7: Punctuation Handling</h2>
+    <p>"Quoted" first word should include the opening quote. This tests punctuation handling in the regex pattern.</p>
+    <p>(Parenthesized) word should include the opening parenthesis.</p>
+    <p>...Ellipsis before word should be handled correctly.</p>
+  </div>
+
+  <div class="test-section test8">
+    <h2>Test 8: RTL Text (Hebrew)</h2>
+    <p>שלום עולם זה טקסט בעברית. המילה הראשונה צריכה להיות מודגשת.</p>
+    <p>مرحبا بالعالم هذا نص عربي. يجب أن تكون الكلمة الأولى مميزة.</p>
+  </div>
+
+  <div class="test-section test9">
+    <h2>Test 9: Unicode Characters</h2>
+    <p>Café résumé naïve. First word with accented characters should be styled correctly.</p>
+    <p>日本語 テキスト。CJK characters should be handled properly.</p>
+    <p>Emoji 🎉 test. First word before emoji should be styled.</p>
+  </div>
+
+  <div class="test-section test10">
+    <h2>Test 10: Nested Elements</h2>
+    <p><strong>Bold</strong> text with nested element. First word should still be styled even when wrapped in tags.</p>
+    <p><em>Italic</em> text with emphasis. The pseudo-element should work with inline elements.</p>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 11: Edge Cases</h2>
+    <p>A single letter word. Tests single-character words.</p>
+    <p>  Leading whitespace before first word. Tests whitespace handling.</p>
+    <p></p>
+    <p>Multiple     spaces     between     words. Tests multiple spaces.</p>
+  </div>
+
+  <hr>
+  
+  <h2>Expected Results</h2>
+  <ul>
+    <li>Test 1: First word should be bold, red (#c00), and 1.2em size</li>
+    <li>Test 2: First word should have yellow background</li>
+    <li>Test 3: First word should be monospace, bold, blue, and uppercase</li>
+    <li>Test 4: First word should be underlined in green</li>
+    <li>Test 5: First word should have letter-spacing and small-caps</li>
+    <li>Test 6: First letter should be large drop cap, first word should be bold red</li>
+    <li>Test 7: Punctuation should be included with first word</li>
+    <li>Test 8: RTL text first word should be styled correctly</li>
+    <li>Test 9: Unicode characters should be handled properly</li>
+    <li>Test 10: First word should be styled even with nested elements</li>
+    <li>Test 11: Edge cases should be handled gracefully</li>
+  </ul>
+
+  <hr>
+  
+  <p><small>Test file created for Vivliostyle.js ::first-word pseudo-element implementation</small></p>
+</body>
+</html>
