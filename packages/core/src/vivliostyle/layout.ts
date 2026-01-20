@@ -619,27 +619,35 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
       // first char
       if (position.viewNode.nodeType != 1) {
         const text = position.viewNode.textContent;
-        const r = text.match(Base.firstLetterPattern);
-        let firstLetterLength = r ? r[0].length : 0;
+        const pseudoName =
+          position.parent?.viewNode?.nodeType === 1
+            ? PseudoElement.getPseudoName(position.parent.viewNode as Element)
+            : "";
+        const pattern =
+          pseudoName === "first-word"
+            ? Base.firstWordPattern
+            : Base.firstLetterPattern;
+        const r = text.match(pattern);
+        let firstLength = r ? r[0].length : 0;
         if (
           !r &&
           position.sourceNode?.nodeType === 3 &&
           position.sourceNode.nextSibling?.nodeType === 3 &&
           text === position.sourceNode.textContent
         ) {
-          // The text '“Foo' may be split to '“' and 'Foo'
+          // The text '"Foo' may be split to '"' and 'Foo'
           const text2 = text + position.sourceNode.nextSibling.textContent;
-          const r2 = text2.match(Base.firstLetterPattern);
+          const r2 = text2.match(pattern);
           if (r2) {
-            const firstLetterText = r2[0];
-            firstLetterLength = firstLetterText.length;
-            position.sourceNode.textContent = firstLetterText;
-            position.viewNode.textContent = firstLetterText;
+            const firstText = r2[0];
+            firstLength = firstText.length;
+            position.sourceNode.textContent = firstText;
+            position.viewNode.textContent = firstText;
             position.sourceNode.nextSibling.textContent =
-              text2.substr(firstLetterLength);
+              text2.substr(firstLength);
           }
         }
-        return this.layoutContext.peelOff(position, firstLetterLength);
+        return this.layoutContext.peelOff(position, firstLength);
       }
     }
     return Task.newResult(position) as Task.Result<Vtree.NodeContext>;
