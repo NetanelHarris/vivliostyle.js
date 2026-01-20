@@ -72,5 +72,9 @@ export default {
     clearScreen: false,
     exclude: ["*"],
     include: [path.join("..", "core", corePkg.main), "src/**/*.ts"],
+    chokidar: {
+      usePolling: true,
+      interval: 1000,
+    },
   },
 };
