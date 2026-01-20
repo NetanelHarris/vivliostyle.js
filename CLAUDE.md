@@ -11,11 +11,13 @@ The core library is based on Peter Sorotokin's EPUB Adaptive Layout implementati
 ## Development Commands
 
 ### Setup
+
 ```bash
 bun install
 ```
 
 ### Build Commands
+
 ```bash
 bun build           # Build all packages (production)
 bun build-dev       # Build all packages (development mode with VIVLIOSTYLE_DEBUG=true)
@@ -23,12 +25,16 @@ bun clean           # Clean all build artifacts
 ```
 
 ### Development (Watch Mode)
+
 ```bash
 bun dev             # Watch mode for core + viewer (excludes react)
 bun dev:react       # Watch mode for core + react (excludes viewer)
 ```
 
+**IMPORTANT**: When working on code changes during development, assume that the development server (`bun dev` or package-specific `bun dev`) is already running and will automatically rebuild changes. Do NOT try to start the development server or run build commands manually unless explicitly requested. The watch mode handles all rebuilds automatically.
+
 ### Package-Specific Commands
+
 ```bash
 # Core package
 cd packages/core
@@ -56,6 +62,7 @@ bun storybook       # Same as dev
 ```
 
 ### Testing
+
 ```bash
 bun test            # Run tests for all packages (parallel)
 
@@ -66,12 +73,14 @@ bun test-ci         # Run Karma in CI mode
 ```
 
 ### Linting and Formatting
+
 ```bash
 bun lint            # Lint all packages
 bun format          # Format all packages with Prettier
 ```
 
 ### Release Management
+
 ```bash
 # Before release
 bun lint && bun test && bun clean && bun build
@@ -93,6 +102,7 @@ bun ship:prerelease      # Publish prerelease (next tag)
 ### Package Structure
 
 **`@vivliostyle/core`** (`packages/core/`)
+
 - The core typesetting engine implementing CSS Paged Media layout
 - Entry point: `src/vivliostyle.ts` exports main API surface
 - Build: TypeScript + esbuild → single bundle `lib/vivliostyle.js`
@@ -109,6 +119,7 @@ bun ship:prerelease      # Publish prerelease (next tag)
   - `plugin.ts`: Plugin system
 
 **`@vivliostyle/viewer`** (`packages/viewer/`)
+
 - Web application providing UI for Vivliostyle Core
 - Entry point: `src/vivliostyle-viewer.ts`
 - Build pipeline: Gulp (SCSS, HTML templating) + Rollup (TypeScript bun dling)
@@ -123,6 +134,7 @@ bun ship:prerelease      # Publish prerelease (next tag)
 - Development server: browser-sync with live reload
 
 **`@vivliostyle/react`** (`packages/react/`)
+
 - React component wrapper for Vivliostyle Core
 - Built with microbundle
 - Uses Storybook for development and testing
@@ -131,6 +143,7 @@ bun ship:prerelease      # Publish prerelease (next tag)
 ### Key Architectural Concepts
 
 **Adaptive Layout**: The core implements an adaptive layout engine that processes HTML+CSS into paginated views. Key flow:
+
 1. Document loading (`epub.ts`, `net.ts`)
 2. CSS parsing and cascade (`css-parser.ts`, `css-cascade.ts`)
 3. View generation (`vgen.ts` creates `vtree.ts` view tree)
@@ -159,22 +172,26 @@ bun ship:prerelease      # Publish prerelease (next tag)
 ## Build System Details
 
 **Core**:
+
 - TypeScript compilation for `.d.ts` generation
 - esbuild for bun dling `src/vivliostyle.ts` → `lib/vivliostyle.js`
 - Format: CommonJS, Target: ES2018
 
 **Viewer**:
+
 - Gulp processes SCSS → CSS, EJS → HTML
 - Rollup bundles TypeScript → `lib/js/vivliostyle-viewer.js`
 - Environment-aware builds via `NODE_ENV` and `VIVLIOSTYLE_VERSION`
 
 **React**:
+
 - Microbundle creates modern + CJS formats
 - Uses Bun runtime (`bun x --bun `) for build commands
 
 ## Naming Conventions
 
 From CONTRIBUTING.md:
+
 - Class names match file names (PascalCase class, kebab-case file)
 - Module imports use PascalCase, files use kebab-case
 - No abbreviations except initialisms (EPUB, PDF) or very lengthy names

@@ -1,277 +1,346 @@
 /**
- * Torah Window Plugin
+ * Copyright 2026 Vivliostyle Foundation
  *
- * Implements "hanging indent" typography style used in Torah/religious books:
- * The second line of a paragraph is indented by the width of the first word + space.
+ * Vivliostyle.js is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- * Usage in CSS:
- *   p { hanging-indent: first-word; }
+ * Vivliostyle.js is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with Vivliostyle.js.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @fileoverview TorahWindow - Implements hanging-indent typography for Hebrew text
  */
 
 import * as Css from "./css";
 import * as Logging from "./logging";
 import * as Plugin from "./plugin";
-import type * as Vtree from "./vtree";
-import type * as Layout from "./layout";
-
-// Property name constant
-const HANGING_INDENT_PROP = "hanging-indent";
-
-// Identifier for the "first-word" value
-const FIRST_WORD_VALUE = Css.getName("first-word");
-const NONE_VALUE = Css.getName("none");
+import type { Layout, Vtree } from "./types";
 
 /**
- * Hook 1: PREPROCESS_ELEMENT_STYLE
- * Stores the hanging-indent value in nodeContext for later use
+ * Torah Window Plugin
+ *
+ * Implements "hanging indent" typography style used in Torah/religious texts:
+ * The second line onwards are indented by the width of the first word + space.
+ *
+ * CSS Usage:
+ *   p { hanging-indent: first-word; }
+ *
+ * Approach:
+ * 1. Parse the CSS property during element style preprocessing
+ * 2. After block layout, measure the first word width
+ * 3. Apply the indent to subsequent lines using CSS transforms or margins
  */
-const preprocessElementStyleHook: Plugin.PreProcessElementStyleHook = (
+
+const PROPERTY_NAME = "hanging-indent";
+const VALUE_FIRST_WORD = "first-word";
+const VALUE_NONE = "none";
+
+/**
+ * Hook: PREPROCESS_ELEMENT_STYLE
+ * Captures the hanging-indent property value and stores it in nodeContext
+ */
+const preprocessElementStyle: Plugin.PreProcessElementStyleHook = (
   nodeContext: Vtree.NodeContext,
-  style: object,
-) => {
-  const styleObj = style as any;
+  style: { [key: string]: Css.Val },
+): void => {
+  const hangingIndent = style[PROPERTY_NAME];
 
-  if (styleObj[HANGING_INDENT_PROP]) {
-    const value = styleObj[HANGING_INDENT_PROP];
-    let stringValue: string;
+  if (!hangingIndent) {
+    return;
+  }
 
-    if (value instanceof Css.Ident) {
-      stringValue = value.name;
-    } else if (typeof value === "string") {
-      stringValue = value;
-    } else {
-      stringValue = value.toString();
-    }
+  // Extract the value as a string
+  let value: string;
+  if (hangingIndent instanceof Css.Ident) {
+    value = hangingIndent.name;
+  } else if (typeof hangingIndent === "string") {
+    value = hangingIndent;
+  } else {
+    value = hangingIndent.toString();
+  }
 
-    Logging.logger.info(
-      `[TorahWindow] PREPROCESS_ELEMENT_STYLE: Setting hanging-indent to ${stringValue} on ${nodeContext.sourceNode?.nodeName}`,
+  // Store in nodeContext for later use during layout
+  if (!nodeContext.inheritedProps) {
+    nodeContext.inheritedProps = {};
+  }
+  nodeContext.inheritedProps[PROPERTY_NAME] = value;
+
+  if (VIVLIOSTYLE_DEBUG) {
+    Logging.logger.debug(
+      `[TorahWindow] Stored ${PROPERTY_NAME}=${value} on ${nodeContext.sourceNode?.nodeName}`,
     );
-
-    nodeContext.inheritedProps = nodeContext.inheritedProps || {};
-    nodeContext.inheritedProps[HANGING_INDENT_PROP] = stringValue;
   }
 };
 
 /**
- * Hook 2: POST_LAYOUT_BLOCK
- * Applies the hanging indent after block layout is complete
+ * Hook: POST_LAYOUT_BLOCK
+ * Applies hanging indent after the block has been laid out
  */
-const postLayoutBlockHangingIndent: Plugin.PostLayoutBlockHook = (
+const postLayoutBlock: Plugin.PostLayoutBlockHook = (
   nodeContext: Vtree.NodeContext,
   checkPoints: Vtree.NodeContext[],
   column: Layout.Column,
-) => {
-  Logging.logger.info(
-    `[TorahWindow] POST_LAYOUT_BLOCK called for ${nodeContext.viewNode?.nodeName}, inline: ${nodeContext.inline}, checkPoints: ${checkPoints.length}`,
-  );
-
-  // Skip if no checkpoints
-  if (!nodeContext || checkPoints.length === 0) {
-    return;
-  }
-
+): void => {
   // Only process block-level elements
-  if (nodeContext.inline) {
+  if (!nodeContext || nodeContext.inline) {
     return;
   }
 
-  // Skip fragments that are not the first fragment
-  if (nodeContext.fragmentIndex > 1) {
+  // Only process block-level elements on their first fragment
+  if (nodeContext.inline || nodeContext.fragmentIndex > 1) {
     return;
   }
 
-  // Check if this block has hanging-indent: first-word
+  // Check if this block has hanging-indent property
   const inheritedProps = nodeContext.inheritedProps;
-  const cssProps = nodeContext.pluginProps;
-  Logging.logger.info(
-    `[TorahWindow] Inherited properties: ${
-      inheritedProps ? Object.keys(inheritedProps).join(", ") : "none"
-    }`,
-  );
-  Logging.logger.info(
-    `[TorahWindow] Plugin properties: ${
-      cssProps ? Object.keys(cssProps).join(", ") : "none"
-    }`,
-  );
-  if (!inheritedProps) {
+  if (!inheritedProps || !inheritedProps[PROPERTY_NAME]) {
     return;
   }
 
-  const hangingIndentValue = inheritedProps[HANGING_INDENT_PROP];
-  if (!hangingIndentValue) {
+  const value = inheritedProps[PROPERTY_NAME];
+  if (value !== VALUE_FIRST_WORD) {
     return;
   }
 
-  Logging.logger.info(
-    `[TorahWindow] Found hanging-indent property with value: ${hangingIndentValue}`,
-  );
-
-  if (hangingIndentValue !== "first-word") {
-    return;
-  }
-
-  Logging.logger.info(
-    `[TorahWindow] Applying hanging-indent to block element: ${nodeContext.viewNode?.nodeName}`,
-  );
-
-  // Get the block element
+  // Get the rendered block element
   const blockElement = nodeContext.viewNode as HTMLElement;
-  if (!blockElement) {
-    Logging.logger.warn(`[TorahWindow] No block element found`);
+  if (!blockElement || blockElement.nodeType !== Node.ELEMENT_NODE) {
     return;
   }
 
-  // Find the first text node to measure
-  // We need to search through the DOM tree, not just checkPoints
-  let firstTextNode: Text | null = null;
-  let firstWordWidth = 0;
+  if (VIVLIOSTYLE_DEBUG) {
+    Logging.logger.debug(
+      `[TorahWindow] Applying hanging-indent to ${blockElement.nodeName}`,
+    );
+  }
 
-  // Helper function to find first text node recursively
-  function findFirstTextNode(node: Node): Text | null {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = (node as Text).textContent || "";
-      if (text.trim().length > 0) {
-        return node as Text;
-      }
-      return null;
+  // TODO: Implement the actual hanging indent logic
+  // This will be implemented after understanding the layout system better
+  applyHangingIndent(blockElement, column);
+};
+
+/**
+ * Apply hanging indent to a block element
+ */
+function applyHangingIndent(
+  blockElement: HTMLElement,
+  column: Layout.Column,
+): void {
+  // Find all text nodes to handle cases where first word is in a separate tag
+  const allTextNodes = collectTextNodes(blockElement);
+  if (allTextNodes.length === 0) {
+    if (VIVLIOSTYLE_DEBUG) {
+      Logging.logger.debug("[TorahWindow] No text nodes found in block");
     }
+    return;
+  }
 
-    for (let i = 0; i < node.childNodes.length; i++) {
-      const result = findFirstTextNode(node.childNodes[i]);
-      if (result) {
-        return result;
+  // Find the first word and trailing space, potentially across multiple text nodes
+  const firstTextNode = allTextNodes[0];
+  const text = firstTextNode.textContent || "";
+  const firstWordMatch = text.match(/^(\s*)(\S+)(\s*)/);
+
+  if (!firstWordMatch) {
+    if (VIVLIOSTYLE_DEBUG) {
+      Logging.logger.debug("[TorahWindow] No first word found");
+    }
+    return;
+  }
+
+  const leadingSpace = firstWordMatch[1];
+  const firstWord = firstWordMatch[2];
+  let trailingSpace = firstWordMatch[3];
+  const firstWordWithSpaces = leadingSpace + firstWord + trailingSpace;
+
+  const doc = blockElement.ownerDocument;
+  const range = doc.createRange();
+  range.setStart(firstTextNode, 0);
+
+  // Check if we have trailing space in the first text node
+  if (trailingSpace.length > 0) {
+    // Simple case: everything is in the first text node
+    range.setEnd(firstTextNode, firstWordWithSpaces.length);
+  } else {
+    // Complex case: first word might be in a tag, need to include space from next text node
+    range.setEnd(firstTextNode, firstWordWithSpaces.length);
+
+    // Look for trailing space in the next text node
+    if (allTextNodes.length > 1) {
+      const nextTextNode = allTextNodes[1];
+      const nextText = nextTextNode.textContent || "";
+      const nextSpaceMatch = nextText.match(/^(\s+)/);
+
+      if (nextSpaceMatch) {
+        // Extend the range to include the space from the next text node
+        range.setEnd(nextTextNode, nextSpaceMatch[1].length);
+        trailingSpace = nextSpaceMatch[1];
+
+        if (VIVLIOSTYLE_DEBUG) {
+          Logging.logger.debug(
+            `[TorahWindow] Found trailing space in next text node: "${trailingSpace}"`,
+          );
+        }
       }
+    }
+  }
+
+  const rects = column.clientLayout.getRangeClientRects(range);
+  let firstWordWidth = 0;
+  for (const rect of rects) {
+    firstWordWidth += rect.width;
+  }
+
+  if (VIVLIOSTYLE_DEBUG) {
+    Logging.logger.debug(
+      `[TorahWindow] First word "${firstWord}" + space width: ${firstWordWidth}px`,
+    );
+  }
+
+  if (firstWordWidth <= 0) {
+    return;
+  }
+
+  // Count the number of lines in the block
+  const lineCount = countLines(blockElement, column);
+
+  if (VIVLIOSTYLE_DEBUG) {
+    Logging.logger.debug(`[TorahWindow] Block has ${lineCount} lines`);
+  }
+
+  // Need at least 2 lines for hanging indent to make sense
+  if (lineCount < 2) {
+    return;
+  }
+
+  // Apply the hanging indent
+  applyHangingIndentStyle(blockElement, firstWordWidth);
+}
+
+/**
+ * Find the first non-empty text node in an element
+ */
+function findFirstTextNode(element: Node): Text | null {
+  if (element.nodeType === Node.TEXT_NODE) {
+    const text = (element as Text).textContent || "";
+    if (text.trim().length > 0) {
+      return element as Text;
     }
     return null;
   }
 
-  firstTextNode = findFirstTextNode(blockElement);
-  if (firstTextNode) {
-    const text = firstTextNode.textContent || "";
-    // Measure the first word + space
-    const match = text.match(/^(\s*\S+\s+)/);
-    if (match) {
-      const firstWordWithSpace = match[1];
-      const doc = firstTextNode.ownerDocument;
-      const range = doc.createRange();
-      range.setStart(firstTextNode, 0);
-      range.setEnd(firstTextNode, firstWordWithSpace.length);
-      const rects = column.clientLayout.getRangeClientRects(range);
-      for (const rect of rects) {
-        firstWordWidth += rect.width;
-      }
-      Logging.logger.info(
-        `[TorahWindow] Measured first word "${firstWordWithSpace.trim()}" width: ${firstWordWidth}px`,
-      );
+  for (let i = 0; i < element.childNodes.length; i++) {
+    const result = findFirstTextNode(element.childNodes[i]);
+    if (result) {
+      return result;
     }
   }
 
-  if (!firstTextNode || firstWordWidth === 0) {
-    Logging.logger.info(
-      `[TorahWindow] No valid first word found or width is 0`,
-    );
-    return;
-  }
+  return null;
+}
 
-  // Count lines in the block by measuring all text nodes
+/**
+ * Count the number of lines in a block element
+ */
+function countLines(element: HTMLElement, column: Layout.Column): number {
+  const textNodes = collectTextNodes(element);
   const lineYPositions = new Set<number>();
-
-  // Helper function to collect all text nodes recursively
-  function collectTextNodes(node: Node, textNodes: Text[]): void {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = (node as Text).textContent || "";
-      if (text.trim().length > 0) {
-        textNodes.push(node as Text);
-      }
-      return;
-    }
-
-    for (let i = 0; i < node.childNodes.length; i++) {
-      collectTextNodes(node.childNodes[i], textNodes);
-    }
-  }
-
-  const textNodes: Text[] = [];
-  collectTextNodes(blockElement, textNodes);
 
   for (const textNode of textNodes) {
     const range = textNode.ownerDocument.createRange();
-    range.selectNode(textNode);
+    range.selectNodeContents(textNode);
     const rects = column.clientLayout.getRangeClientRects(range);
 
     for (const rect of rects) {
+      // Round to avoid floating point precision issues
       const lineY = Math.round(rect.top);
       lineYPositions.add(lineY);
     }
   }
 
-  const lineCount = lineYPositions.size;
-  Logging.logger.info(`[TorahWindow] Found ${lineCount} lines in block`);
+  return lineYPositions.size;
+}
 
-  // Need at least 2 lines
-  if (lineCount < 2) {
-    Logging.logger.info(
-      `[TorahWindow] Only ${lineCount} line(s), not applying hanging indent`,
-    );
-    return;
+/**
+ * Collect all non-empty text nodes in an element
+ */
+function collectTextNodes(element: Node): Text[] {
+  const result: Text[] = [];
+
+  function collect(node: Node): void {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = (node as Text).textContent || "";
+      if (text.trim().length > 0) {
+        result.push(node as Text);
+      }
+      return;
+    }
+
+    for (let i = 0; i < node.childNodes.length; i++) {
+      collect(node.childNodes[i]);
+    }
   }
 
-  // Create two float elements to create the hanging indent effect
-  const doc = blockElement.ownerDocument;
+  collect(element);
+  return result;
+}
 
-  // Element 1: Float with 0 width and 2lh height
-  // This "reserves" space for 2 lines but doesn't push text (width: 0)
-  const floatSpacer = doc.createElement("span");
-  floatSpacer.className = "vivliostyle-hanging-indent-spacer";
+function applyHangingIndentStyle(
+  blockElement: HTMLElement,
+  indentWidth: number,
+): void {
+  const doc = blockElement.ownerDocument;
+  const computedStyle = doc.defaultView?.getComputedStyle(blockElement);
+  const lineHeight = computedStyle?.lineHeight || "1.2em";
+
+  const floatSpacer = doc.createElement("div");
+  floatSpacer.className = "vivliostyle-torah-window-spacer";
   floatSpacer.style.cssFloat = "inline-start";
   floatSpacer.style.width = "0";
-  floatSpacer.style.height = "1.5rlh";
-  floatSpacer.style.lineHeight = "inherit";
+  floatSpacer.style.height = `calc(${lineHeight} * 1.5)`;
+  floatSpacer.style.lineHeight = lineHeight;
 
-  // Element 2: Float with the measured width and 1px height
-  // This creates the actual indentation on the second line
-  const floatIndent = doc.createElement("span");
-  floatIndent.className = "vivliostyle-hanging-indent-pusher";
+  const floatIndent = doc.createElement("div");
+  floatIndent.className = "vivliostyle-torah-window-indent";
   floatIndent.style.cssFloat = "inline-start";
   floatIndent.style.clear = "inline-start";
-  floatIndent.style.width = `${firstWordWidth}px`;
+  floatIndent.style.width = `${indentWidth}px`;
   floatIndent.style.height = "1px";
 
-  // Insert both elements at the beginning of the block
   const firstChild = blockElement.firstChild;
   blockElement.insertBefore(floatSpacer, firstChild);
   blockElement.insertBefore(floatIndent, firstChild);
 
-  Logging.logger.info(
-    `[TorahWindow] Applied hanging indent: ${firstWordWidth}px, ${lineCount} lines`,
-  );
-
-  // Store in plugin props for debugging
-  if (!nodeContext.pluginProps) {
-    nodeContext.pluginProps = {};
+  if (VIVLIOSTYLE_DEBUG) {
+    Logging.logger.debug(
+      `[TorahWindow] Applied two-float technique with indent width ${indentWidth}px`,
+    );
   }
-  nodeContext.pluginProps["torahWindow:applied"] = 1;
-  nodeContext.pluginProps["torahWindow:width"] = firstWordWidth;
-  nodeContext.pluginProps["torahWindow:lineCount"] = lineCount;
-};
+}
 
 /**
- * Initialize the plugin by registering hooks
+ * Initialize the plugin
  */
-export function init(): void {
-  Logging.logger.info("[TorahWindow] Initializing Torah Window plugin");
+function init(): void {
+  if (VIVLIOSTYLE_DEBUG) {
+    Logging.logger.info("[TorahWindow] Initializing Torah Window plugin");
+  }
 
   Plugin.registerHook(
     Plugin.HOOKS.PREPROCESS_ELEMENT_STYLE,
-    preprocessElementStyleHook,
+    preprocessElementStyle,
   );
 
-  Plugin.registerHook(
-    Plugin.HOOKS.POST_LAYOUT_BLOCK,
-    postLayoutBlockHangingIndent,
-  );
+  Plugin.registerHook(Plugin.HOOKS.POST_LAYOUT_BLOCK, postLayoutBlock);
 
-  Logging.logger.info("[TorahWindow] Plugin initialized successfully");
+  if (VIVLIOSTYLE_DEBUG) {
+    Logging.logger.info("[TorahWindow] Plugin initialized");
+  }
 }
 
 // Auto-initialize
