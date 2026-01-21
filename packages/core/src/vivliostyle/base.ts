@@ -45,7 +45,7 @@ export const firstLetterPattern =
  * Matches: leading punctuation + word + trailing punctuation
  */
 export const firstWordPattern =
-  /^[\s\p{Zs}\p{P}\p{Mn}]*[\p{L}\p{N}][\p{L}\p{N}\p{Mn}]*(?:[\s\p{Zs}]*\p{P}\p{Mn}*)*/u;
+  /^[\s\p{Zs}\p{P}\p{Mn}]*[\p{L}\p{N}][\p{L}\p{N}\p{Mn}\p{P}\p{Mn}]*(?:[\s\p{Zs}]*\p{P}\p{Mn}*)*/u;
 
 /**
  * Indicates the offset position of an element in a document
