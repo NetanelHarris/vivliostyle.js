@@ -11,8 +11,8 @@
     "dev:html": "gulp serve-dev",
     "dev:ts": "bunx cross-env NODE_ENV=development rollup -c -w --watch.buildDelay 1000",
     "format": "prettier --write \"{*.{js,md,json},{src,test}/**/*.{ts,js}}\"",
-    "lint": "run-p lint:*",
-    "lint:css": "stylelint src/scss/{*.*,**/*.*}",
+    "lint": "bunx run-p lint:*",
+    "lint:css": "bunx stylelint src/scss/{*.*,**/*.*}",
     "lint:ts": "bunx eslint src --fix -f codeframe",
     "serve": "yarn build && gulp serve",
     "test": "echo 'Tests for Vivliostyle Viewer has been disabled. See #618.'"
