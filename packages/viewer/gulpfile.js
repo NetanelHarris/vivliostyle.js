@@ -61,7 +61,10 @@ const srcPattern = (type) =>
 function createCopyTask(type) {
   const dest = destDir(type);
   return gulp.task("build:" + type, function (done) {
-    return gulp.src(srcPattern(type)).pipe(changed(dest)).pipe(gulp.dest(dest))
+    return gulp
+      .src(srcPattern(type))
+      .pipe(changed(dest))
+      .pipe(gulp.dest(dest))
       .on("finish", () => done());
   });
 }
@@ -97,8 +100,12 @@ function buildHtml(isDevelopment, done) {
     .pipe(gulp.dest(destDir("html")))
     .on("finish", () => done());
 }
-gulp.task("build:html", function(done) { return buildHtml(false, done); });
-gulp.task("build:html-dev", function(done) { return buildHtml(true, done); });
+gulp.task("build:html", function (done) {
+  return buildHtml(false, done);
+});
+gulp.task("build:html-dev", function (done) {
+  return buildHtml(true, done);
+});
 
 // Build CSS
 function buildCss(isDevelopment, done) {
@@ -126,8 +133,12 @@ function buildCss(isDevelopment, done) {
     .pipe(gulp.dest(path.resolve(destDir("css"))))
     .on("finish", () => done());
 }
-gulp.task("build:css", function(done) { return buildCss(false, done); });
-gulp.task("build:css-dev", function(done) { return buildCss(true, done); });
+gulp.task("build:css", function (done) {
+  return buildCss(false, done);
+});
+gulp.task("build:css-dev", function (done) {
+  return buildCss(true, done);
+});
 
 // build all
 gulp.task(
