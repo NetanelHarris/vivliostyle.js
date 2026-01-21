@@ -78,6 +78,67 @@ const preprocessElementStyle: Plugin.PreProcessElementStyleHook = (
   }
 };
 
+interface RegExpNodeMatchArray extends Array<Range> {
+  groups?: {
+    [key: string]: Range;
+  };
+}
+
+function matchRegExpNode(
+  regex: RegExp,
+  node: Node,
+): RegExpNodeMatchArray | null {
+  const nodes = [];
+  const nodeIterator = document.createNodeIterator(node, NodeFilter.SHOW_TEXT);
+  while ((node = nodeIterator.nextNode())) {
+    nodes.push(node);
+  }
+  const nodesMap: {
+    node: Node;
+    start: number;
+    end: number;
+  }[] = [];
+  let allText = "";
+  for (const n of nodes) {
+    const text = n.textContent || "";
+    const start = allText.length;
+    allText += text;
+    const end = allText.length;
+    nodesMap.push({ node: n, start, end });
+  }
+  const match = regex.exec(allText);
+  if (!match || !match.indices) {
+    return null;
+  }
+  const result: RegExpNodeMatchArray = [];
+  for (let i = 0; i < match.indices.length; i++) {
+    const [matchStart, matchEnd] = match.indices[i];
+    result.push(initializeNodeRange(matchStart, matchEnd));
+  }
+  if (match.indices.groups) {
+    result.groups = {};
+    for (const [groupName, [start, end]] of Object.entries(
+      match.indices.groups,
+    )) {
+      result.groups[groupName] = initializeNodeRange(start, end);
+    }
+  }
+  return result;
+
+  function initializeNodeRange(start: number, end: number) {
+    const mapToNodes = (offset: number) =>
+      nodesMap.find((n) => n.end >= offset);
+    const startNodeInfo = mapToNodes(start);
+    const startNormalizedOffset = start - startNodeInfo.start;
+    const endNodeInfo = mapToNodes(end);
+    const endNormalizedOffset = end - endNodeInfo.start;
+    const range = document.createRange();
+    range.setStart(startNodeInfo.node, startNormalizedOffset);
+    range.setEnd(endNodeInfo.node, endNormalizedOffset);
+    return range;
+  }
+}
+
 /**
  * Hook: POST_LAYOUT_BLOCK
  * Applies hanging indent after the block has been laid out
@@ -120,10 +181,33 @@ const postLayoutBlock: Plugin.PostLayoutBlockHook = (
     );
   }
 
-  // TODO: Implement the actual hanging indent logic
-  // This will be implemented after understanding the layout system better
   applyHangingIndent(blockElement, column);
 };
+
+function boundingRectFromRects(
+  rects: DOMRectList | DOMRect[] | Vtree.ClientRect[],
+): Vtree.ClientRect {
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+
+  for (const r of rects) {
+    left = Math.min(left, r.left);
+    top = Math.min(top, r.top);
+    right = Math.max(right, r.right);
+    bottom = Math.max(bottom, r.bottom);
+  }
+
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width: right - left,
+    height: bottom - top,
+  };
+}
 
 /**
  * Apply hanging indent to a block element
@@ -132,69 +216,22 @@ function applyHangingIndent(
   blockElement: HTMLElement,
   column: Layout.Column,
 ): void {
-  // Find all text nodes to handle cases where first word is in a separate tag
-  const allTextNodes = collectTextNodes(blockElement);
-  if (allTextNodes.length === 0) {
-    if (VIVLIOSTYLE_DEBUG) {
-      Logging.logger.debug("[TorahWindow] No text nodes found in block");
-    }
-    return;
-  }
-
-  // Find the first word and trailing space, potentially across multiple text nodes
-  const firstTextNode = allTextNodes[0];
-  const text = firstTextNode.textContent || "";
-  const firstWordMatch = text.match(/^(\s*)(\S+)(\s*)/);
-
-  if (!firstWordMatch) {
+  const firstWordAndSpaceRange = matchRegExpNode(
+    /^\s*(?<word>\S+\s)/du,
+    blockElement,
+  )?.groups?.word;
+  if (!firstWordAndSpaceRange) {
     if (VIVLIOSTYLE_DEBUG) {
       Logging.logger.debug("[TorahWindow] No first word found");
     }
     return;
   }
 
-  const leadingSpace = firstWordMatch[1];
-  const firstWord = firstWordMatch[2];
-  let trailingSpace = firstWordMatch[3];
-  const firstWordWithSpaces = leadingSpace + firstWord + trailingSpace;
-
-  const doc = blockElement.ownerDocument;
-  const range = doc.createRange();
-  range.setStart(firstTextNode, 0);
-
-  // Check if we have trailing space in the first text node
-  if (trailingSpace.length > 0) {
-    // Simple case: everything is in the first text node
-    range.setEnd(firstTextNode, firstWordWithSpaces.length);
-  } else {
-    // Complex case: first word might be in a tag, need to include space from next text node
-    range.setEnd(firstTextNode, firstWordWithSpaces.length);
-
-    // Look for trailing space in the next text node
-    if (allTextNodes.length > 1) {
-      const nextTextNode = allTextNodes[1];
-      const nextText = nextTextNode.textContent || "";
-      const nextSpaceMatch = nextText.match(/^(\s+)/);
-
-      if (nextSpaceMatch) {
-        // Extend the range to include the space from the next text node
-        range.setEnd(nextTextNode, nextSpaceMatch[1].length);
-        trailingSpace = nextSpaceMatch[1];
-
-        if (VIVLIOSTYLE_DEBUG) {
-          Logging.logger.debug(
-            `[TorahWindow] Found trailing space in next text node: "${trailingSpace}"`,
-          );
-        }
-      }
-    }
-  }
-
-  const rects = column.clientLayout.getRangeClientRects(range);
-  let firstWordWidth = 0;
-  for (const rect of rects) {
-    firstWordWidth += rect.width;
-  }
+  const rect = boundingRectFromRects(
+    column.clientLayout.getRangeClientRects(firstWordAndSpaceRange),
+  );
+  const firstWord = firstWordAndSpaceRange[1]?.toString();
+  const firstWordWidth = rect ? rect.width : 0;
 
   if (VIVLIOSTYLE_DEBUG) {
     Logging.logger.debug(
