@@ -596,10 +596,18 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
       // first char
       if (position.viewNode.nodeType != 1) {
         const text = position.viewNode.textContent;
-        const pseudoName =
-          position.parent?.viewNode?.nodeType === 1
-            ? PseudoElement.getPseudoName(position.parent.viewNode as Element)
-            : "";
+        // Walk up the parent chain to find the pseudo-element
+        // (fixes issue where first word wrapped in <span> only gets first letter styled)
+        let pseudoName = "";
+        let current = position.parent;
+        while (current && current.viewNode?.nodeType === 1) {
+          pseudoName = PseudoElement.getPseudoName(current.viewNode as Element);
+          if (pseudoName === "first-word" || pseudoName === "first-letter") {
+            break;
+          }
+          pseudoName = "";
+          current = current.parent;
+        }
         const pattern =
           pseudoName === "first-word"
             ? Base.firstWordPattern
