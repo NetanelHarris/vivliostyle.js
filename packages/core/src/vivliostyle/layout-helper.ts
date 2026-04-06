@@ -182,11 +182,21 @@ export function getElementClientRectAdjusted(
 
   if (columnOver > 0) {
     let style = clientLayout.getElementComputedStyle(element);
-    if (Base.browserType === "firefox" && style.display === "table") {
-      // Workaround for Firefox bug: Tables do not break (fragment) in CSS Multi-column Layout
+    if (
+      style.display.startsWith("table") &&
+      !findAncestorNonRootMultiColumn(element)
+    ) {
+      // For now, browser's column breaking for tables does not work well,
+      // so we disable it and use our own fragmentation logic for tables
+      // unless the table is inside a non-root multi-column element, which
+      // requires the browser's column breaking.
+      //
+      // Firefox bug: Tables do not break (fragment) in CSS Multi-column Layout
       //   https://bugzilla.mozilla.org/show_bug.cgi?id=888257
-      // We cannot use the browser's column breaking for tables in Firefox,
-      // so we disable it and use our own fragmentation logic.
+      //
+      // Chromium also has a bug on table fragmentation:
+      //   https://issues.chromium.org/issues/458852795
+
       const columnElem = element.closest(
         "[data-vivliostyle-column]",
       ) as HTMLElement;
@@ -195,53 +205,6 @@ export function getElementClientRectAdjusted(
 
         const rect2 = clientLayout.getElementClientRect(element);
         return rect2;
-      }
-    } else if (
-      Base.browserType === "chromium" &&
-      (style.display === "table-cell" ||
-        (element.className === "-vivliostyle-table-cell-container" &&
-          element.parentElement?.parentElement &&
-          (style = clientLayout.getElementComputedStyle(
-            element.parentElement.parentElement,
-          )).display === "table-cell"))
-    ) {
-      // Workaround for Chromium bug on table fragmentation:
-      //   https://issues.chromium.org/issues/458852795
-      // To prevent the table cell from moving to the next column without breaking inside the cell due to the bug,
-      // we try to reduce the column height so that a column break inside the cell can occur.
-      const columnElem = element.closest(
-        "[data-vivliostyle-column]",
-      ) as HTMLElement;
-      const columnStyle = columnElem?.style;
-      const blockSizeP = vertical ? "width" : "height";
-      const columnHeight = columnStyle && parseFloat(columnStyle[blockSizeP]);
-      if (columnHeight) {
-        let columnHeight2 = columnHeight;
-        let columnOver2 = columnOver;
-        const paddingBlockEnd = parseFloat(style.paddingBlockEnd);
-        const borderBlockEndWidth = parseFloat(style.borderBlockEndWidth);
-        let count = Math.ceil(paddingBlockEnd + borderBlockEndWidth);
-        while (
-          count-- > 0 &&
-          columnOver2 === columnOver &&
-          --columnHeight2 > 0
-        ) {
-          columnStyle[blockSizeP] = `${columnHeight2}px`;
-          const rect2 = clientLayout.getElementClientRect(element);
-          columnOver2 = adjustRectForColumnBreaking(rect2, vertical);
-          if (
-            columnOver2 < columnOver ||
-            (columnOver2 === columnOver &&
-              (vertical ? rect2.right > rect.right : rect2.top < rect.top))
-          ) {
-            columnElem.setAttribute(
-              "data-vivliostyle-column-block-size-adjusted",
-              "true",
-            );
-            return rect2;
-          }
-        }
-        columnStyle[blockSizeP] = `${columnHeight}px`;
       }
     }
   }

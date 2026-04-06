@@ -580,6 +580,10 @@ module.exports = [
         title: "Table repeating header/footer (vertical writing-mode)",
       },
       { file: "table/break_after_table.html", title: "Break after table" },
+      {
+        file: "table/table-break.html",
+        title: "Table page break (auto + forced) (Issue #1492, #1849)",
+      },
     ],
   },
   {
