@@ -287,7 +287,10 @@ export function canIgnore(node: Node, whitespace?: Whitespace): boolean {
   if (node.nodeType == 1) {
     return false;
   }
-  const text = node.textContent;
+  return canIgnoreText(node.textContent, whitespace);
+}
+
+export function canIgnoreText(text: string, whitespace?: Whitespace): boolean {
   switch (whitespace) {
     case Whitespace.PRESERVE:
       return text.length == 0;
