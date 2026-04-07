@@ -584,6 +584,10 @@ module.exports = [
         file: "table/table-break.html",
         title: "Table page break (auto + forced) (Issue #1492, #1849)",
       },
+      {
+        file: "table/nrmc-table-break-column.html",
+        title: "Table column break in non-root multicol (Issue #1854)",
+      },
     ],
   },
   {

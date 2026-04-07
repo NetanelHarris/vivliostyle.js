@@ -4569,11 +4569,15 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
 export class PseudoColumn {
   startNodeContexts: Vtree.NodeContext[] = [];
   private column: Layout.Column;
+  // Issue #1854: retain the source subtree root so we can detect breaks that
+  // land after the last significant node in a table-cell pseudo column.
+  private readonly flowRootSourceNode: Node;
   constructor(
     column: Layout.Column,
     viewRoot: HTMLElement,
     parentNodeContext: Vtree.NodeContext,
   ) {
+    this.flowRootSourceNode = parentNodeContext.sourceNode;
     this.column = Object.create(column) as Layout.Column;
     this.column.element = viewRoot;
     this.column.layoutContext = column.layoutContext.clone();
@@ -4645,10 +4649,57 @@ export class PseudoColumn {
     );
   }
   isLastAfterNodeContext(nodeContext: Vtree.NodeContext): boolean {
-    return VtreeImpl.isSameNodePosition(
-      nodeContext.toNodePosition(),
-      this.column.lastAfterPosition,
+    return (
+      VtreeImpl.isSameNodePosition(
+        nodeContext.toNodePosition(),
+        this.column.lastAfterPosition,
+      ) || this.isEffectivelyLastAfterNodeContext(nodeContext)
     );
+  }
+
+  private isEffectivelyLastAfterNodeContext(
+    nodeContext: Vtree.NodeContext,
+  ): boolean {
+    // Issue #1854: a table cell can break immediately after its last visible
+    // text node without matching lastAfterPosition exactly; treat that as a
+    // terminal break so table row fragmentation does not create an empty
+    // continuation fragment that only carries borders.
+    const flowRoot = this.flowRootSourceNode;
+    const sourceNode = nodeContext.sourceNode;
+    if (!flowRoot || !sourceNode || !nodeContext.after) {
+      return false;
+    }
+    if (
+      flowRoot !== sourceNode &&
+      !(flowRoot as Element).contains?.(sourceNode)
+    ) {
+      return false;
+    }
+    if (sourceNode.nodeType === Node.TEXT_NODE) {
+      const textNode = sourceNode as Text;
+      if (nodeContext.offsetInNode < textNode.length) {
+        const remainingText = textNode.data.slice(nodeContext.offsetInNode);
+        if (!VtreeImpl.canIgnoreText(remainingText, nodeContext.whitespace)) {
+          return false;
+        }
+      }
+    }
+    for (
+      let node: Node | null = sourceNode;
+      node && node !== flowRoot;
+      node = node.parentNode
+    ) {
+      for (
+        let sibling = node.nextSibling;
+        sibling;
+        sibling = sibling.nextSibling
+      ) {
+        if (!VtreeImpl.canIgnore(sibling, nodeContext.whitespace)) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
   getColumnElement(): Element {
     return this.column.element;
