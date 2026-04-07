@@ -121,6 +121,10 @@ module.exports = [
         title: "target-text() - Cross-Document References",
       },
       {
+        file: "target-text-reflow-navigation/publication.json",
+        title: "target-text() reflow across WebPub spine navigation",
+      },
+      {
         file: "target-text-vs-named-strings.html",
         title: "target-text() vs Named Strings",
       },
