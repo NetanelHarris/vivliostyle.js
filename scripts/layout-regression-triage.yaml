@@ -1,3 +1,153 @@
+- id: "0056"
+  category: General
+  title: box-decoration-break
+  file: box-decoration-break.html
+  type: difference
+  decision: ""  # regression / expected / skip
+  notes: ""
+  approvedViewer: git-fix-issue1775  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/box-decoration-break.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle-git-fix-issue1775-vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/box-decoration-break.html&zoom=1&spread=false
+  diffPages:
+    - 2
+- id: "0157"
+  category: Table
+  title: Table colspan
+  file: table/table_colspan.html
+  type: difference
+  decision: ""  # regression / expected / skip
+  notes: ""
+  approvedViewer: git-fix-issue1813  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_colspan.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle-git-fix-issue1813-vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_colspan.html&zoom=1&spread=false
+  diffPages:
+    - 1
+    - 3
+- id: "0158"
+  category: Table
+  title: Table colspan (vertical writing-mode)
+  file: table/table_colspan_vertical.html
+  type: difference
+  decision: ""  # regression / expected / skip
+  notes: ""
+  approvedViewer: git-fix-issue1813  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_colspan_vertical.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle-git-fix-issue1813-vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_colspan_vertical.html&zoom=1&spread=false
+  diffPages:
+    - 1
+    - 3
+- id: "0159"
+  category: Table
+  title: Table vertical-align
+  file: table/table_vertical_align.html
+  type: difference
+  decision: ""  # regression / expected / skip
+  notes: ""
+  approvedViewer: git-fix-issue1813  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_vertical_align.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle-git-fix-issue1813-vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_vertical_align.html&zoom=1&spread=false
+  diffPages:
+    - 1
+- id: "0160"
+  category: Table
+  title: Table vertical-align (vertical writing-mode)
+  file: table/table_vertical_align_vertical.html
+  type: difference
+  decision: ""  # regression / expected / skip
+  notes: ""
+  approvedViewer: ""  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_vertical_align_vertical.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle.org/viewer/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_vertical_align_vertical.html&zoom=1&spread=false
+  diffPages:
+    - 1
+- id: "0162"
+  category: Table
+  title: Table repeating header/footer (vertical writing-mode)
+  file: table/table_repeating_header_footer_vertical.html
+  type: difference
+  decision: ""  # regression / expected / skip
+  notes: improved handling of repeating headers and footers
+  approvedViewer: git-fix-issue1803a  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_repeating_header_footer_vertical.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle-git-fix-issue1803a-vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_repeating_header_footer_vertical.html&zoom=1&spread=false
+  diffPages:
+    - 3
+- id: "0164"
+  category: Table
+  title: "Table page break (auto + forced) (Issue #1492, #1849)"
+  file: table/table-break.html
+  type: difference
+  decision: ""  # regression / expected / skip
+  notes: ""
+  approvedViewer: ""  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table-break.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle.org/viewer/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table-break.html&zoom=1&spread=false
+  diffPages:
+    - 1
+    - 2
+- id: "0241"
+  category: Repeating Elements
+  title: nesting table
+  file: repeating_elements/nesting_table.html
+  type: difference
+  decision: ""  # regression / expected / skip
+  notes: ""
+  approvedViewer: git-fix-issue1813  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/repeating_elements/nesting_table.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle-git-fix-issue1813-vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/repeating_elements/nesting_table.html&zoom=1&spread=false
+  diffPages:
+    - 4
+    - 5
+    - 6
+- id: "0242"
+  category: Repeating Elements
+  title: nesting table (vertical writing-mode)
+  file: repeating_elements/nesting_table_vertical.html
+  type: difference
+  decision: ""  # regression / expected / skip
+  notes: ""
+  approvedViewer: git-fix-issue1813  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/repeating_elements/nesting_table_vertical.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle-git-fix-issue1813-vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/repeating_elements/nesting_table_vertical.html&zoom=1&spread=false
+  diffPages:
+    - 4
+    - 5
 - category: Page breaks
   title: "Page breaking with container padding/border (Issue #1846)"
   file: page_breaks/page-breaking-with-container-padding-border.html
@@ -678,38 +828,6 @@
     - 2
     - 3
     - 4
-- category: Table
-  title: Table colspan
-  file: table/table_colspan.html
-  type: difference
-  decision: expected  # regression / expected / skip
-  notes: ""
-  approvedViewer: git-fix-issue1813  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
-  actualLabel: canary
-  actualUrl: >-
-    https://vivliostyle.vercel.app/#src=https://raw.githack.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_colspan.html&zoom=1&spread=false
-  baselineLabel: stable
-  baselineUrl: >-
-    https://vivliostyle.org/viewer/#src=https://raw.githack.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_colspan.html&zoom=1&spread=false
-  diffPages:
-    - 1
-    - 2
-- category: Table
-  title: Table colspan (vertical writing-mode)
-  file: table/table_colspan_vertical.html
-  type: difference
-  decision: expected  # regression / expected / skip
-  notes: ""
-  approvedViewer: git-fix-issue1813  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
-  actualLabel: canary
-  actualUrl: >-
-    https://vivliostyle.vercel.app/#src=https://raw.githack.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_colspan_vertical.html&zoom=1&spread=false
-  baselineLabel: stable
-  baselineUrl: >-
-    https://vivliostyle.org/viewer/#src=https://raw.githack.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_colspan_vertical.html&zoom=1&spread=false
-  diffPages:
-    - 1
-    - 2
 - category: Footnotes
   title: "::footnote-marker with list-style-position: outside (Issue #1702)"
   file: footnotes/footnote-marker-outside-style.html
@@ -738,21 +856,6 @@
   baselineLabel: stable
   baselineUrl: >-
     https://vivliostyle-git-fix-issue1775-vivliostyle.vercel.app/#src=https://raw.githack.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_rowspan_vertical.html&zoom=1&spread=false
-  diffPages:
-    - 1
-- category: Table
-  title: Table vertical-align
-  file: table/table_vertical_align.html
-  type: difference
-  decision: expected  # regression / expected / skip
-  notes: ""
-  approvedViewer: git-fix-issue1813  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
-  actualLabel: canary
-  actualUrl: >-
-    https://vivliostyle.vercel.app/#src=https://raw.githack.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_vertical_align.html&zoom=1&spread=false
-  baselineLabel: stable
-  baselineUrl: >-
-    https://vivliostyle.org/viewer/#src=https://raw.githack.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_vertical_align.html&zoom=1&spread=false
   diffPages:
     - 1
 - category: Table
@@ -852,36 +955,6 @@
     - 5
     - 6
     - 9
-- category: Repeating Elements
-  title: nesting table
-  file: repeating_elements/nesting_table.html
-  type: difference
-  decision: expected  # regression / expected / skip
-  notes: ""
-  approvedViewer: git-fix-issue1813  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
-  actualLabel: canary
-  actualUrl: >-
-    https://vivliostyle.vercel.app/#src=https://raw.githack.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/repeating_elements/nesting_table.html&zoom=1&spread=false
-  baselineLabel: stable
-  baselineUrl: >-
-    https://vivliostyle-git-fix-issue1786a-vivliostyle.vercel.app/#src=https://raw.githack.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/repeating_elements/nesting_table.html&zoom=1&spread=false
-  diffPages:
-    - 4
-- category: Repeating Elements
-  title: nesting table (vertical writing-mode)
-  file: repeating_elements/nesting_table_vertical.html
-  type: difference
-  decision: expected  # regression / expected / skip
-  notes: ""
-  approvedViewer: git-fix-issue1813  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
-  actualLabel: canary
-  actualUrl: >-
-    https://vivliostyle.vercel.app/#src=https://raw.githack.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/repeating_elements/nesting_table_vertical.html&zoom=1&spread=false
-  baselineLabel: stable
-  baselineUrl: >-
-    https://vivliostyle-git-fix-issue1786a-vivliostyle.vercel.app/#src=https://raw.githack.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/repeating_elements/nesting_table_vertical.html&zoom=1&spread=false
-  diffPages:
-    - 4
 - category: General
   title: Selector bug
   file: selector_bug.html
@@ -981,22 +1054,6 @@
     https://vivliostyle.org/viewer/#src=https://raw.githack.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/page_breaks/block-start-out-of-flow-break-vertical.html&zoom=1&spread=false
   diffPages:
     - 1
-    - 2
-    - 3
-- category: Table
-  title: Table repeating header/footer (vertical writing-mode)
-  file: table/table_repeating_header_footer_vertical.html
-  type: difference
-  decision: expected  # regression / expected / skip
-  notes: improved handling of repeating headers and footers
-  approvedViewer: git-fix-issue1803a  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
-  actualLabel: canary
-  actualUrl: >-
-    https://vivliostyle.vercel.app/#src=https://raw.githack.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_repeating_header_footer_vertical.html&zoom=1&spread=false
-  baselineLabel: stable
-  baselineUrl: >-
-    https://vivliostyle.org/viewer/#src=https://raw.githack.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table_repeating_header_footer_vertical.html&zoom=1&spread=false
-  diffPages:
     - 2
     - 3
 - category: Page floats
@@ -1415,22 +1472,6 @@
   diffPages:
     - 1
     - 2
-- category: General
-  title: box-decoration-break
-  file: box-decoration-break.html
-  type: difference
-  decision: expected  # regression / expected / skip
-  notes: ""
-  approvedViewer: git-fix-issue1775  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
-  actualLabel: canary
-  actualUrl: >-
-    https://vivliostyle.vercel.app/#src=https://raw.githack.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/box-decoration-break.html
-  baselineLabel: stable
-  baselineUrl: >-
-    https://vivliostyle.org/viewer/#src=https://raw.githack.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/box-decoration-break.html
-  diffPages:
-    - 2
-    - 4
 - category: General
   title: Justification
   file: justification.html
