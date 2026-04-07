@@ -19,6 +19,7 @@
  */
 import * as Asserts from "./asserts";
 import * as Base from "./base";
+import * as Break from "./break";
 import * as BreakPosition from "./break-position";
 import * as Css from "./css";
 import * as LayoutHelper from "./layout-helper";
@@ -43,6 +44,8 @@ import {
 
 export class TableRow {
   cells: TableCell[] = [];
+  breakBefore: string | null = null;
+  breakAfter: string | null = null;
 
   constructor(
     public readonly rowIndex: number,
@@ -869,6 +872,11 @@ export class EntireTableLayoutStrategy extends LayoutUtil.EdgeSkipper {
             this.rowIndex,
             new TableRow(this.rowIndex, nodeContext.sourceNode),
           );
+          // Capture row's own breakBefore for forced break detection
+          if (nodeContext.breakBefore) {
+            formattingContext.rows[this.rowIndex].breakBefore =
+              nodeContext.breakBefore;
+          }
           if (!repetitiveElements.firstContentSourceNode) {
             repetitiveElements.firstContentSourceNode =
               nodeContext.sourceNode as Element;
@@ -911,6 +919,14 @@ export class EntireTableLayoutStrategy extends LayoutUtil.EdgeSkipper {
           if (!this.inHeaderOrFooter) {
             formattingContext.lastRowViewNode = nodeContext.viewNode as Element;
             this.inRow = false;
+            // Capture row's own breakAfter for forced break detection
+            const row = formattingContext.rows[this.rowIndex];
+            if (row && nodeContext.breakAfter) {
+              row.breakAfter = Break.resolveEffectiveBreakValue(
+                row.breakAfter,
+                nodeContext.breakAfter,
+              );
+            }
           }
           break;
         case "table-cell":
@@ -926,6 +942,22 @@ export class EntireTableLayoutStrategy extends LayoutUtil.EdgeSkipper {
               new TableCell(this.rowIndex, this.columnIndex, elem),
             );
             this.columnIndex++;
+            // Propagate cell break values to the row for forced break detection
+            const cellRow = formattingContext.rows[this.rowIndex];
+            if (cellRow) {
+              if (nodeContext.breakBefore) {
+                cellRow.breakBefore = Break.resolveEffectiveBreakValue(
+                  cellRow.breakBefore,
+                  nodeContext.breakBefore,
+                );
+              }
+              if (nodeContext.breakAfter) {
+                cellRow.breakAfter = Break.resolveEffectiveBreakValue(
+                  cellRow.breakAfter,
+                  nodeContext.breakAfter,
+                );
+              }
+            }
           }
           break;
       }
@@ -1231,11 +1263,55 @@ export class TableLayoutStrategy extends LayoutUtil.EdgeSkipper {
     return this.layoutRowSpanningCellsFromPreviousFragment(state).thenAsync(
       () => {
         this.registerCellFragmentIndex();
+
+        // Merge pre-collected cell/row break values with state.breakAtTheEdge
+        let breakAtEdge = state.breakAtTheEdge;
+        if (this.currentRowIndex > 0) {
+          const prevRow = formattingContext.rows[this.currentRowIndex - 1];
+          if (prevRow?.breakAfter) {
+            breakAtEdge = Break.resolveEffectiveBreakValue(
+              breakAtEdge,
+              prevRow.breakAfter,
+            );
+          }
+        }
+        const currentRow = formattingContext.rows[this.currentRowIndex];
+        if (currentRow?.breakBefore) {
+          breakAtEdge = Break.resolveEffectiveBreakValue(
+            breakAtEdge,
+            currentRow.breakBefore,
+          );
+        }
+
+        // Check for forced break before this row
+        if (!state.leadingEdge && Break.isForcedBreakValue(breakAtEdge)) {
+          this.column.checkOverflowAndSaveEdgeAndBreakPosition(
+            state.lastAfterNodeContext,
+            null,
+            true,
+            breakAtEdge,
+          );
+          if (nodeContext.viewNode?.parentNode) {
+            nodeContext.viewNode.parentNode.removeChild(nodeContext.viewNode);
+          }
+          // Set block-end box-break flags on the table and its ancestors
+          // since doFinishBreak skips finishBreak when pageBreakType is set
+          if (state.lastAfterNodeContext) {
+            this.column.layoutContext.processFragmentedBlockEdge(
+              state.lastAfterNodeContext,
+            );
+          }
+          this.column.pageBreakType = breakAtEdge;
+          this.resetColumn();
+          state.break = true;
+          return Task.newResult(true);
+        }
+
         const overflown = this.column.checkOverflowAndSaveEdgeAndBreakPosition(
           state.lastAfterNodeContext,
           null,
           true,
-          state.breakAtTheEdge,
+          breakAtEdge,
         );
         if (
           overflown &&
@@ -1669,7 +1745,9 @@ export class TableLayoutProcessor implements LayoutProcessor.LayoutProcessor {
         ).current;
       if (
         !column.isOverflown(edge) &&
-        (!tableLayoutOption || !tableLayoutOption.calculateBreakPositionsInside)
+        (!tableLayoutOption ||
+          !tableLayoutOption.calculateBreakPositionsInside) &&
+        !this.hasForcedBreakInRows(formattingContext)
       ) {
         column.breakPositions.push(
           new EntireTableBreakPosition(initialNodeContext),
@@ -1682,6 +1760,31 @@ export class TableLayoutProcessor implements LayoutProcessor.LayoutProcessor {
       frame.finish(null);
     });
     return frame.result();
+  }
+
+  /**
+   * Check if any row inside the table has a forced break value
+   * (propagated from cells or set on the row itself).
+   */
+  private hasForcedBreakInRows(
+    formattingContext: TableFormattingContext,
+  ): boolean {
+    for (let i = 0; i < formattingContext.rows.length; i++) {
+      const row = formattingContext.rows[i];
+      if (!row) continue;
+      // Skip the first row's breakBefore (break before the table, not inside)
+      if (i > 0 && Break.isForcedBreakValue(row.breakBefore)) {
+        return true;
+      }
+      // Skip the last row's breakAfter (break after the table, not inside)
+      if (
+        i < formattingContext.rows.length - 1 &&
+        Break.isForcedBreakValue(row.breakAfter)
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   addCaptions(
