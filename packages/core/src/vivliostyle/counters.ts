@@ -604,6 +604,9 @@ class CounterResolver implements CssCascade.CounterResolver {
       .sort(Base.numberCompare);
 
     const currentPage = this.counterStore.currentPage;
+    if (!currentPage) {
+      return "";
+    }
     const pageStartOffset = currentPage.isBlankPage
       ? currentPage.offset - 1
       : currentPage.offset;
