@@ -13,3 +13,7 @@ package.json
 # Documentation (prevent unintended formatting)
 /docs/**/*.md
 !/docs/**/README.md
+
+# Triage files
+triage.yaml
+layout-regression-triage.yaml
