@@ -1159,6 +1159,126 @@ export class CounterStore {
   }
 
   /**
+   * Adjust page counter snapshots for elements in spines after the specified
+   * spine. Called when a preceding spine's page count changes (e.g. TOC
+   * expands after target-text resolution), shifting all subsequent pages.
+   */
+  adjustPageCountersOfLaterSpines(
+    expandedSpineIndex: number,
+    pageDelta: number,
+  ): void {
+    if (pageDelta <= 0) return;
+    // Multiple IDs on the same page share the same counter object reference
+    // (assigned in finishPage). Use a Set to avoid adjusting the same object
+    // multiple times.
+    const adjusted = new Set<CssCascade.CounterValues>();
+    for (const id of Object.keys(this.pageIndicesById)) {
+      const idx = this.pageIndicesById[id];
+      if (idx.spineIndex > expandedSpineIndex) {
+        const counters = this.pageCountersById[id];
+        if (counters && counters["page"] && !adjusted.has(counters)) {
+          adjusted.add(counters);
+          counters["page"] = counters["page"].map((v) => v + pageDelta);
+        }
+      }
+    }
+  }
+
+  /**
+   * Walk through target-counter DOM nodes in the given page containers and
+   * update their text content from the current pageCountersById snapshots.
+   */
+  updateTargetCounterNodesInPages(pages: Vtree.Page[]): void {
+    for (const page of pages) {
+      if (!page || !page.container) continue;
+      const nodes = page.container.querySelectorAll(`[${TARGET_COUNTER_ATTR}]`);
+      for (const node of nodes) {
+        const key = node.getAttribute(TARGET_COUNTER_ATTR);
+        const expr = this.targetCounterExprs.find((o) => o.expr.key === key);
+        if (expr && expr.transformedId) {
+          const counterValue = this.pageCountersById[expr.transformedId];
+          if (counterValue) {
+            const arr: number[] = counterValue[expr.name];
+            if (arr) {
+              node.textContent = expr.format(arr[arr.length - 1]);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Resolve page-level counter values for a page.
+   *
+   * Prefer an explicit per-page snapshot when one is supplied. Otherwise fall
+   * back to looking up tracked element IDs on the page via pageCountersById.
+   *
+   * Note: explicitCounters are pageCounterStarts (pre-increment snapshots),
+   * while pageCountersById stores post-increment values. When using
+   * explicitCounters as a fallback, the caller should be aware of this
+   * distinction. For the "page" counter the difference is +1, but this
+   * method returns whichever snapshot it finds without adjustment.
+   */
+  private getPageCountersForPage(
+    page: Vtree.Page,
+    explicitCounters?: CssCascade.CounterValues | null,
+  ): CssCascade.CounterValues | null {
+    // First try pageCountersById (post-render values) via any tracked element
+    const elementIds = Object.keys(page.elementsById);
+    for (const elementId of elementIds) {
+      const counters = this.pageCountersById[elementId];
+      if (counters) {
+        return counters;
+      }
+    }
+    // Fall back to explicit per-page counters (e.g. pageCounterStarts)
+    if (explicitCounters) {
+      return explicitCounters;
+    }
+    return null;
+  }
+
+  /**
+   * Walk through page-counter DOM nodes in the given page containers and
+   * update their text content from the adjusted pageCountersById snapshots.
+   * Called after adjustPageCountersOfLaterSpines has shifted the counters.
+   *
+   * When available, pass explicit per-page counter snapshots aligned with the
+   * given pages so pages without tracked element IDs are also updated.
+   */
+  updatePageCounterNodesInPages(
+    pages: Vtree.Page[],
+    pageCountersByPage?: Array<CssCascade.CounterValues | null>,
+  ): void {
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i];
+      if (!page?.container) continue;
+
+      const counters = this.getPageCountersForPage(
+        page,
+        pageCountersByPage?.[i],
+      );
+      if (!counters) continue;
+
+      const nodes = page.container.querySelectorAll(`[${PAGE_COUNTER_ATTR}]`);
+      for (const node of nodes) {
+        const key = node.getAttribute(PAGE_COUNTER_ATTR);
+        const counterExpr = this.pageCounterExprs.find(
+          (o) => o.expr.key === key,
+        );
+        if (!counterExpr) continue;
+        const str = (counterExpr.expr as Exprs.Native)?.str;
+        const counterName = str?.replace(/^page-counters?-/, "");
+        const counterValues = counters[counterName];
+        if (counterValues) {
+          node.textContent = counterExpr.format(counterValues);
+        }
+      }
+    }
+  }
+
+  /**
    * Returns unresolved references pointing to the specified page.
    */
   getUnresolvedRefsToPage(page: Vtree.Page): {
