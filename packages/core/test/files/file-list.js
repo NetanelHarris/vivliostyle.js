@@ -122,7 +122,8 @@ module.exports = [
       },
       {
         file: "target-text-reflow-navigation/publication.json",
-        title: "target-text() reflow across WebPub spine navigation",
+        title:
+          "target-text() reflow across WebPub spine navigation (Issue #1856)",
       },
       {
         file: "target-text-vs-named-strings.html",

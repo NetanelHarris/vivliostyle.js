@@ -2028,6 +2028,15 @@ export class OPFView implements Vgen.CustomRendererFactory {
             targetViewItem.instance.currentPageGroupDocument =
               savedCurrentPageGroupDocument;
             targetViewItem.instance.scopes = scopes;
+            // Save the counter state BEFORE popping. After renderSinglePage,
+            // currentPageCounters reflects the correct end state for the
+            // target page within the pushed scope. This is the correct
+            // starting state for any pending page created by cascade blocking.
+            // After popPageCounters, this state is lost (restored to the
+            // source spine's counters), so save it now.
+            const counterStateAfterTargetRender = cloneCounterValues(
+              this.counterStore.currentPageCounters,
+            );
             this.counterStore.popPageCounters();
             this.counterStore.popReferencesToSolve();
             if (
@@ -2054,6 +2063,7 @@ export class OPFView implements Vgen.CustomRendererFactory {
             // layout slot (layoutPositions has next page) without an actual
             // rendered page in pages[]. Materialize that pending page here so
             // later navigation/render loops do not stop one page early.
+            const isCrossSpine = targetViewItem !== viewItem;
             const firstPendingPageIndex = targetViewItem.pages.length;
             const pendingLayoutPosition =
               targetViewItem.layoutPositions[firstPendingPageIndex];
@@ -2065,12 +2075,90 @@ export class OPFView implements Vgen.CustomRendererFactory {
               pendingLayoutPosition &&
               !hasActiveRootPageFloatLayoutContextAfterRerender
             ) {
+              // For cross-spine cases, save/restore counter state around the
+              // pending page render and use the counter state saved before
+              // popPageCounters, because the global state after pop reflects
+              // the source spine, not the target spine.
+              const savedCountersBeforePending = isCrossSpine
+                ? cloneCounterValues(this.counterStore.currentPageCounters)
+                : null;
+              if (isCrossSpine) {
+                this.counterStore.currentPageCounters =
+                  counterStateAfterTargetRender;
+              }
+              const pageCountBeforePending = firstPendingPageIndex;
               this.renderSinglePage(targetViewItem, pendingLayoutPosition).then(
                 () => {
+                  if (isCrossSpine) {
+                    this.markSpineItemCompleteIfReady(targetViewItem);
+                  }
+                  // After the pending page expanded the target spine,
+                  // pageCountersById snapshots for elements in later spines
+                  // are stale (page counter is off by the added pages).
+                  // Adjust those snapshots, shift the saved source-spine
+                  // counter state so subsequent pages start from the
+                  // corrected offset, and patch already-rendered
+                  // target-counter DOM nodes in the expanded spine's pages.
+                  const pageDelta =
+                    targetViewItem.pages.length - pageCountBeforePending;
+                  if (isCrossSpine && pageDelta > 0) {
+                    this.counterStore.adjustPageCountersOfLaterSpines(
+                      targetViewItem.item.spineIndex,
+                      pageDelta,
+                    );
+                    this.counterStore.updateTargetCounterNodesInPages(
+                      targetViewItem.pages,
+                    );
+                    // Adjust pageCounterStarts and page-counter DOM nodes
+                    // for all already-rendered later-spine viewItems so
+                    // their counter(page) margins show the corrected value
+                    // and future re-renders start from the right offset.
+                    const expandedIdx = targetViewItem.item.spineIndex;
+                    for (
+                      let si = expandedIdx + 1;
+                      si < this.spineItems.length;
+                      si++
+                    ) {
+                      const laterItem = this.spineItems[si];
+                      if (!laterItem) continue;
+                      laterItem.item.epage += pageDelta;
+                      for (const pcs of laterItem.pageCounterStarts) {
+                        if (pcs?.["page"]) {
+                          pcs["page"] = pcs["page"].map((v) => v + pageDelta);
+                        }
+                      }
+                      this.counterStore.updatePageCounterNodesInPages(
+                        laterItem.pages,
+                        laterItem.pageCounterStarts,
+                      );
+                    }
+                    // Shift the saved source-spine counter state so that
+                    // when it is restored below, subsequent pages of the
+                    // source spine continue with the corrected page offset.
+                    if (savedCountersBeforePending) {
+                      const srcPage = savedCountersBeforePending["page"];
+                      if (srcPage) {
+                        savedCountersBeforePending["page"] = srcPage.map(
+                          (v) => v + pageDelta,
+                        );
+                      }
+                    }
+                  }
+                  if (savedCountersBeforePending) {
+                    this.counterStore.currentPageCounters =
+                      savedCountersBeforePending;
+                  }
                   loopFrame.continueLoop();
                 },
               );
               return;
+            }
+            // The target spine's re-render (or cascade inside the resolve
+            // scope) may have set complete=false even when no pending page
+            // was created. Re-check completeness so navigation can advance
+            // past this spine. Only for cross-spine cases.
+            if (isCrossSpine) {
+              this.markSpineItemCompleteIfReady(targetViewItem);
             }
             loopFrame.continueLoop();
           });
@@ -2244,6 +2332,22 @@ export class OPFView implements Vgen.CustomRendererFactory {
               resultPage = viewItem.pages[pageIndex];
               loopFrame.breakLoop();
             } else if (sync) {
+              this.renderPage(normalizedPosition).then((result) => {
+                if (result) {
+                  resultPage = result.page;
+                  pageIndex = result.position.pageIndex;
+                }
+                loopFrame.breakLoop();
+              });
+            } else if (
+              pageIndex < viewItem.layoutPositions.length &&
+              !viewItem.pages[pageIndex]
+            ) {
+              // The page has a pending layout position that was never
+              // materialized (e.g. created during target-text resolution
+              // but blocked from cascading, or the spine was recreated
+              // during navigation). Render it now instead of polling
+              // forever waiting for a nonexistent concurrent task.
               this.renderPage(normalizedPosition).then((result) => {
                 if (result) {
                   resultPage = result.page;
@@ -3089,11 +3193,36 @@ export class OPFView implements Vgen.CustomRendererFactory {
             ? previousViewItem.instance.pageNumberOffset +
               previousViewItem.pages.length
             : 0;
-          const counters = this.counterStore.currentPageCounters["page"];
-          pageCounterOffset =
-            !counters || !counters.length
-              ? pageNumberOffset
-              : counters[counters.length - 1];
+          // Derive the page counter offset from the previous spine's last
+          // rendered page counter start rather than the global
+          // currentPageCounters, which may reflect stale state from a later
+          // spine that has been destroyed and is being recreated (e.g. after
+          // target-text reflow expanded an earlier spine).
+          // Note: pageCounterStarts is captured BEFORE updatePageCounters()
+          // applies counter-increment, so +1 is added for the standard page
+          // auto-increment. Using pageCounterStarts instead of
+          // pageCountersById because the latter can be overwritten during
+          // resolve-scope cascade re-renders (finishPage), making it
+          // unreliable for offset derivation.
+          const prevLastPageCounterStarts =
+            previousViewItem &&
+            previousViewItem.pageCounterStarts[
+              previousViewItem.pages.length - 1
+            ];
+          const prevLastPageCounters =
+            prevLastPageCounterStarts && prevLastPageCounterStarts["page"];
+          if (prevLastPageCounters && prevLastPageCounters.length) {
+            // pageCounterStarts stores the counter BEFORE auto-increment,
+            // so add 1 for the page's own increment.
+            pageCounterOffset =
+              prevLastPageCounters[prevLastPageCounters.length - 1] + 1;
+          } else {
+            const counters = this.counterStore.currentPageCounters["page"];
+            pageCounterOffset =
+              !counters || !counters.length
+                ? pageNumberOffset
+                : counters[counters.length - 1];
+          }
 
           // Note: The "page" counter value differs to the "page-number" value
           // if the "page" counter has been reset by counter-reset/increment.
