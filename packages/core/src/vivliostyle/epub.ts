@@ -118,86 +118,109 @@ export class EPUBDocStore extends OPS.OPSDocStore {
     return this.jsonStore.load(url, opt_required, opt_message);
   }
 
+  loadWebPubManifest(url: string, frame: Task.Frame<OPFDoc>): void {
+    this.loadAsJSON(url, true).then((manifestObj) => {
+      if (!manifestObj) {
+        this.reportLoadError(url);
+        frame.finish(null);
+        return;
+      }
+      const opf = new OPFDoc(this, url);
+      opf.initWithWebPubManifest(manifestObj, undefined, url).then(() => {
+        frame.finish(opf);
+      });
+    });
+  }
+
   loadPubDoc(url: string): Task.Result<OPFDoc> {
     const frame: Task.Frame<OPFDoc> = Task.newFrame("loadPubDoc");
 
-    Net.fetchFromURL(url, null, "HEAD").then((response) => {
-      if (response.status >= 400) {
-        // This url can be the root of an unzipped EPUB.
-        this.loadEPUBDoc(url).then((opf) => {
-          if (opf) {
-            frame.finish(opf);
-            return;
-          }
-          Logging.logger.error(
-            `Failed to fetch a source document from ${url} (${response.status}${
-              response.statusText ? " " + response.statusText : ""
-            })`,
-          );
-          frame.finish(null);
-        });
-      } else {
-        if (
-          !response.status &&
-          !response.responseXML &&
-          !response.responseText &&
-          !response.responseBlob &&
-          !response.contentType
-        ) {
-          // Empty response
-          if (/\/[^/.]+(?:[#?]|$)/.test(url)) {
-            // Adding trailing "/" may solve the problem.
-            url = url.replace(/([#?]|$)/, "/$1");
-          } else {
-            // Ignore empty response of HEAD request, it may become OK with GET request.
-          }
+    if (/\.opf(?:[#?]|$)/i.test(url)) {
+      // EPUB OPF
+      const [, pubURL, root] = url.match(/^((?:.*\/)?)([^/]*)$/);
+      this.loadOPF(pubURL, root).thenFinish(frame);
+    } else if (/\.json(?:ld)?(?:[#?]|$)/i.test(url)) {
+      // Web Publication Manifest
+      this.loadWebPubManifest(url, frame);
+    } else if (/\.(x?html?|xht)(?:[#?]|$)/i.test(url)) {
+      // Web Publication primary entry (X)HTML
+      // Skip HEAD request to avoid potential CORS errors on cross-origin servers
+      this.loadWebPub(url).then((opf) => {
+        if (opf) {
+          frame.finish(opf);
+          return;
         }
-        if (
-          response.contentType == "application/oebps-package+xml" ||
-          /\.opf(?:[#?]|$)/.test(url)
-        ) {
-          // EPUB OPF
-          const [, pubURL, root] = url.match(/^((?:.*\/)?)([^/]*)$/);
-          this.loadOPF(pubURL, root).thenFinish(frame);
-        } else if (
-          response.contentType == "application/ld+json" ||
-          response.contentType == "application/webpub+json" ||
-          response.contentType == "application/audiobook+json" ||
-          response.contentType == "application/json" ||
-          /\.json(?:ld)?(?:[#?]|$)/.test(url)
-        ) {
-          // Web Publication Manifest
-          this.loadAsJSON(url, true).then((manifestObj) => {
-            if (!manifestObj) {
-              this.reportLoadError(url);
-              frame.finish(null);
-              return;
-            }
-            const opf = new OPFDoc(this, url);
-            opf.initWithWebPubManifest(manifestObj, undefined, url).then(() => {
-              frame.finish(opf);
-            });
-          });
-        } else {
-          // Web Publication primary entry (X)HTML
-          this.loadWebPub(url).then((opf) => {
+        // A URL with a known HTML extension cannot be the root of an unzipped EPUB.
+        this.reportLoadError(url);
+        frame.finish(null);
+      });
+    } else {
+      // For ambiguous URLs (no recognized extension), use HEAD to check
+      // content type and availability before loading.
+      Net.fetchFromURL(url, null, "HEAD").then((response) => {
+        if (response.status >= 400) {
+          // This url can be the root of an unzipped EPUB.
+          this.loadEPUBDoc(url).then((opf) => {
             if (opf) {
               frame.finish(opf);
               return;
             }
-            // This url can be the root of an unzipped EPUB.
-            this.loadEPUBDoc(url).then((opf) => {
+            Logging.logger.error(
+              `Failed to fetch a source document from ${url} (${response.status}${
+                response.statusText ? " " + response.statusText : ""
+              })`,
+            );
+            frame.finish(null);
+          });
+        } else {
+          if (
+            !response.status &&
+            !response.responseXML &&
+            !response.responseText &&
+            !response.responseBlob &&
+            !response.contentType
+          ) {
+            // Empty response
+            if (/\/[^/.]+(?:[#?]|$)/.test(url)) {
+              // Adding trailing "/" may solve the problem.
+              url = url.replace(/([#?]|$)/, "/$1");
+            } else {
+              // Ignore empty response of HEAD request, it may become OK with GET request.
+            }
+          }
+          if (response.contentType == "application/oebps-package+xml") {
+            // EPUB OPF (served with OPF content type but without .opf extension)
+            const [, pubURL, root] = url.match(/^((?:.*\/)?)([^/]*)$/);
+            this.loadOPF(pubURL, root).thenFinish(frame);
+          } else if (
+            response.contentType == "application/ld+json" ||
+            response.contentType == "application/webpub+json" ||
+            response.contentType == "application/audiobook+json" ||
+            response.contentType == "application/json"
+          ) {
+            // Web Publication Manifest (served with JSON content type)
+            this.loadWebPubManifest(url, frame);
+          } else {
+            // Web Publication primary entry (X)HTML
+            this.loadWebPub(url).then((opf) => {
               if (opf) {
                 frame.finish(opf);
                 return;
               }
-              Logging.logger.error(`Failed to load ${url}.`);
-              frame.finish(null);
+              // This url can be the root of an unzipped EPUB.
+              this.loadEPUBDoc(url).then((opf) => {
+                if (opf) {
+                  frame.finish(opf);
+                  return;
+                }
+                this.reportLoadError(url);
+                frame.finish(null);
+              });
             });
-          });
+          }
         }
-      }
-    });
+      });
+    }
     return frame.result();
   }
 
@@ -271,6 +294,7 @@ export class EPUBDocStore extends OPS.OPSDocStore {
     this.load(url).then((xmldoc) => {
       if (!xmldoc) {
         this.reportLoadError(url);
+        frame.finish(null);
       } else if (
         xmldoc.document.querySelector(
           "a[href='META-INF/'],a[href$='/META-INF/']",
