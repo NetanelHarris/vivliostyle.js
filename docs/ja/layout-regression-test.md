@@ -245,6 +245,9 @@ PR 実行時は `--actual-viewer` が自動的に `git-<branch>` に設定され
 --viewport-width <number>    ブラウザのビューポート幅（デフォルト: 1800）
 --viewport-height <number>   ブラウザのビューポート高さ（デフォルト: 1800）
 --skip-screenshots           スクリーンショットをスキップしてページ数のみ確認
+--concurrency <number>       並列キャプチャ数（デフォルト: os.availableParallelism()）
+--export-html                各エントリのレンダリング済み HTML スナップショットを出力
+--export-html-diff           整形済み HTML を比較して差分を出力
 --actual-viewer <spec>       actual ビューワー指定（デフォルト: canary）
 --baseline-viewer <spec>     baseline ビューワー指定（デフォルト: stable）
 --actual-label <name>        レポートでの actual のラベル

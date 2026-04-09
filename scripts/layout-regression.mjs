@@ -868,7 +868,9 @@ function loadTriageStatusMap(outDir) {
 
     return new Map(
       entries.map((e) => {
-        const key = `${e.category}\x00${e.title}\x00${e.type || "difference"}`;
+        // Use empty string for type-less entries (re-appended approvedViewer entries
+        // stored without a type field), consistent with writeTriageTemplate's prevMap.
+        const key = `${e.category}\x00${e.title}\x00${e.type || ""}`;
         const decision = String(e.decision || "").trim();
         return [
           key,
@@ -885,11 +887,15 @@ function loadTriageStatusMap(outDir) {
 }
 
 function getTriageStatus(triageStatusMap, category, title, type) {
+  // 3-stage fallback: same type → type-less (re-appended approvedViewer entry) → other type.
+  // Mirrors the prevMap lookup in writeTriageTemplate so runtime status is consistent
+  // with the carry-over logic even when an entry switches between difference and error.
   return (
-    triageStatusMap.get(`${category}\x00${title}\x00${type}`) || {
-      status: "pending",
-      decision: "",
-    }
+    triageStatusMap.get(`${category}\x00${title}\x00${type || "difference"}`) ||
+    triageStatusMap.get(`${category}\x00${title}\x00`) ||
+    triageStatusMap.get(
+      `${category}\x00${title}\x00${type === "error" ? "difference" : "error"}`,
+    ) || { status: "pending", decision: "" }
   );
 }
 
@@ -1101,22 +1107,34 @@ function writeTriageTemplate(outDir, result) {
     }
     if (Array.isArray(prev)) {
       const prevMap = new Map(
-        prev.map((e) => [
-          `${e.category}\x00${e.title}\x00${e.type || "difference"}`,
-          e,
-        ]),
+        prev.map((e) => [`${e.category}\x00${e.title}\x00${e.type || ""}`, e]),
       );
       let carried = 0;
       for (const entry of entries) {
-        const old = prevMap.get(
-          `${entry.category}\x00${entry.title}\x00${entry.type || "difference"}`,
-        );
+        // Primary lookup by category+title+type; fall back to type-less entry
+        // (stored without type when the entry matched approvedViewer last run),
+        // then fall back to the other type (difference↔error can switch between runs).
+        const old =
+          prevMap.get(
+            `${entry.category}\x00${entry.title}\x00${entry.type || "difference"}`,
+          ) ||
+          prevMap.get(`${entry.category}\x00${entry.title}\x00`) ||
+          prevMap.get(
+            `${entry.category}\x00${entry.title}\x00${entry.type === "error" ? "difference" : "error"}`,
+          );
         if (old) {
           if (old.approvedViewer) {
             // approvedViewer was set: this entry was compared against an approved snapshot.
-            // If it appears again in differences, canary has drifted → reset decision.
+            // If it appears again in differences, canary has drifted from approvedViewer.
             entry.approvedViewer = old.approvedViewer;
-            // decision is intentionally NOT carried over (needs re-evaluation)
+            if (old.decision && old.decision !== "expected") {
+              // Decision was set to "regression" or "skip" by the user: carry it over.
+              // "expected" is not carried over because it meant the entry matched approvedViewer
+              // — but now there's a new diff, so it needs re-evaluation.
+              entry.decision = old.decision;
+              carried++;
+            }
+            // If decision is empty or was "expected", leave it empty → pending, needs triage
           } else {
             if (old.decision) {
               entry.decision = old.decision;
@@ -1135,41 +1153,50 @@ function writeTriageTemplate(outDir, result) {
       if (resetCount > 0)
         resetMsg = `, ${resetCount} reset (canary drifted from approvedViewer)`;
 
-      // Re-append entries that had approvedViewer + decision but are not in the current
-      // diff results (they matched approvedViewer = no diff this run).
-      // Keep them so approvedViewer is remembered on the next run.
-      const currentKeys = new Set(
-        entries.map(
-          (e) => `${e.category}\x00${e.title}\x00${e.type || "difference"}`,
-        ),
+      // Re-append entries that had approvedViewer but have no diff/error in the current run
+      // (they matched approvedViewer). Keep them so approvedViewer is remembered on the next run.
+      // Use category+title (no type) so that ANY current diff/error for this entry
+      // prevents re-appending (we don't want duplicates across types).
+      const currentKeysNoType = new Set(
+        entries.map((e) => `${e.category}\x00${e.title}`),
       );
       let reappended = 0;
+      let restored = 0;
       for (const old of prev) {
         if (
           old.approvedViewer &&
-          old.decision &&
-          !currentKeys.has(
-            `${old.category}\x00${old.title}\x00${old.type || "difference"}`,
-          )
+          !currentKeysNoType.has(`${old.category}\x00${old.title}`)
         ) {
-          // Re-append with normalized field order (user-editable fields first).
+          // Re-append keeping only metadata needed to track approvedViewer.
+          // Strip type (difference/error) and all stale result-specific fields
+          // so the entry doesn't falsely suggest a current diff or error.
           const {
             id: _id,
+            type: _type,
+            pageCountActual: _pca,
+            pageCountBaseline: _pcb,
+            diffPages: _dp,
+            errorSide: _es,
+            errorName: _en,
+            errorMessage: _em,
             category,
             title,
             file,
-            type,
             decision,
             notes,
             approvedViewer,
             ...rest
           } = old;
+          // Always restore to "expected" since the entry now matches approvedViewer again.
+          // This covers: empty decision, "regression" (bug was fixed), "skip", etc.
+          const restoredDecision = "expected";
+          if (decision !== "expected") restored++;
           entries.push({
             category,
             title,
             file,
-            type,
-            decision,
+            // no "type" field: entry matched approvedViewer (no current diff or error)
+            decision: restoredDecision,
             notes,
             approvedViewer,
             ...rest,
@@ -1180,7 +1207,7 @@ function writeTriageTemplate(outDir, result) {
 
       const reappendMsg =
         reappended > 0
-          ? `, ${reappended} preserved (no diff vs approvedViewer)`
+          ? `, ${reappended} preserved (no diff vs approvedViewer${restored > 0 ? `, ${restored} restored to expected` : ""})`
           : "";
       if (carried > 0 || resetCount > 0 || reappended > 0) {
         console.log(
@@ -1321,12 +1348,16 @@ async function main() {
 
     if (!baseline.ok || !actual.ok) {
       if (!baseline.ok) {
-        const triage = getTriageStatus(
+        const rawTriage = getTriageStatus(
           triageStatusMap,
           target.category,
           target.title,
           "error",
         );
+        const triage =
+          target.usedApprovedViewer && rawTriage.decision === "expected"
+            ? { status: "pending", decision: "" }
+            : rawTriage;
         errors.push({
           id,
           category: target.category,
@@ -1346,12 +1377,16 @@ async function main() {
         );
       }
       if (!actual.ok) {
-        const triage = getTriageStatus(
+        const rawTriage = getTriageStatus(
           triageStatusMap,
           target.category,
           target.title,
           "error",
         );
+        const triage =
+          target.usedApprovedViewer && rawTriage.decision === "expected"
+            ? { status: "pending", decision: "" }
+            : rawTriage;
         errors.push({
           id,
           category: target.category,
@@ -1464,11 +1499,14 @@ async function main() {
         diffEntry.title,
         "difference",
       );
-      // If compared against approvedViewer and a difference was found, canary has
-      // drifted from the approved snapshot → needs re-triage regardless of prior decision.
-      const triage = target.usedApprovedViewer
-        ? { status: "pending", decision: "" }
-        : rawTriage;
+      // If compared against approvedViewer and a difference was found:
+      // - if prior decision was "expected" (entry previously matched approvedViewer),
+      //   treat as pending — it has drifted and needs re-triage.
+      // - if prior decision was "regression" or "skip", keep it — user already knows.
+      const triage =
+        target.usedApprovedViewer && rawTriage.decision === "expected"
+          ? { status: "pending", decision: "" }
+          : rawTriage;
       diffEntry.triage = triage;
       differences.push(diffEntry);
       console.log(

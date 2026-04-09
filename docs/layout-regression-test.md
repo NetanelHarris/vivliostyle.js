@@ -260,6 +260,9 @@ category filter, and limit.
 --viewport-width <number>    Browser viewport width (default: 1800)
 --viewport-height <number>   Browser viewport height (default: 1800)
 --skip-screenshots           Skip image capture/compare, check page counts only
+--concurrency <number>       Number of entries to capture in parallel (default: os.availableParallelism())
+--export-html                Export rendered HTML snapshot for each entry
+--export-html-diff           Compare prettified rendered HTML and write diff
 --actual-viewer <spec>       Actual viewer spec (default: canary)
 --baseline-viewer <spec>     Baseline viewer spec (default: stable)
 --actual-label <name>        Label for actual in report
