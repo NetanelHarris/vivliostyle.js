@@ -3,9 +3,9 @@
   title: "text-spacing-trim after code element (Issue #1863)"
   file: text-spacing/text-spacing-trim-start-code.html
   type: difference
-  decision: ""  # regression / expected / skip
+  decision: "expected"  # regression / expected / skip
   notes: ""
-  approvedViewer: ""  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  approvedViewer: "git-fix-issue1863"  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
   actualLabel: canary
   actualUrl: >-
     https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/text-spacing/text-spacing-trim-start-code.html&zoom=1&spread=false
