@@ -210,6 +210,13 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/57749636?v=4",
       "profile": "https://github.com/u1f992",
       "contributions": ["code"]
+    },
+    {
+      "login": "depth42",
+      "name": "Frank Illenberger",
+      "avatar_url": "https://avatars.githubusercontent.com/u/207403?v=4",
+      "profile": "https://github.com/depth42",
+      "contributions": ["code"]
     }
   ],
   "contributorsPerLine": 7
