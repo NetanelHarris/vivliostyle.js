@@ -224,6 +224,13 @@
       "avatar_url": "https://avatars.githubusercontent.com/u/3883758?v=4",
       "profile": "https://www.woda.at/",
       "contributions": ["code"]
+    },
+    {
+      "login": "jdtcn",
+      "name": "Sergey",
+      "avatar_url": "https://avatars.githubusercontent.com/u/47177226?v=4",
+      "profile": "https://github.com/jdtcn",
+      "contributions": ["code"]
     }
   ],
   "contributorsPerLine": 7
