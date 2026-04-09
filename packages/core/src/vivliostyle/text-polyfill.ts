@@ -520,6 +520,9 @@ class TextSpacingPolyfill {
         p.viewNode.nodeType === Node.TEXT_NODE &&
         !Vtree.canIgnore(p.viewNode, p.whitespace)
       ) {
+        if (iFirst < 0) {
+          iFirst = i;
+        }
         const lang = normalizeLang(
           p.lang ??
             p.parent.lang ??
@@ -545,10 +548,6 @@ class TextSpacingPolyfill {
         if (/\b(flex|grid)\b/.test(p.parent.display)) {
           // Cannot process if parent is flex or grid. (Issue #926)
           continue;
-        }
-
-        if (iFirst < 0) {
-          iFirst = i;
         }
         let prevNode: Node = null;
         let nextNode: Node = null;

@@ -319,6 +319,10 @@ module.exports = [
         file: "text-spacing/ts-generated-content-vertical.html",
         title: "Text-spacing on generated content (vertical writing-mode)",
       },
+      {
+        file: "text-spacing/text-spacing-trim-start-code.html",
+        title: "text-spacing-trim after code element (Issue #1863)",
+      },
     ],
   },
   {
