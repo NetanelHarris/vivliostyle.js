@@ -4,8 +4,8 @@
   "version": "2.40.0",
   "author": "Yasuaki Uechi <y@uechi.io>",
   "scripts": {
-    "build": "yarn clean && tsc -p tsconfig.build.json && microbundle build -i .microbundle/index.js --format modern,cjs && shx rm -rf dist/stories .microbundle",
-    "build-dev": "yarn clean && tsc -p tsconfig.build.json && microbundle build -i .microbundle/index.js --no-compress --format cjs && shx rm -rf dist/stories .microbundle",
+    "build": "yarn clean && node ../../node_modules/typescript/bin/tsc -p tsconfig.build.json && microbundle build -i .microbundle/index.js --tsconfig tsconfig.build.json --generateTypes false --format modern,cjs && shx rm -rf dist/stories .microbundle",
+    "build-dev": "yarn clean && node ../../node_modules/typescript/bin/tsc -p tsconfig.build.json && microbundle build -i .microbundle/index.js --tsconfig tsconfig.build.json --generateTypes false --no-compress --format cjs && shx rm -rf dist/stories .microbundle",
     "build-storybook": "storybook build",
     "clean": "shx rm -rf dist",
     "dev": "yarn storybook",
