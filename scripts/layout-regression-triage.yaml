@@ -3,9 +3,9 @@
   title: "Page margin box images (Issue #1867)"
   file: page-margin-box-images.html
   type: difference
-  decision: ""  # regression / expected / skip
+  decision: "expected"  # regression / expected / skip
   notes: ""
-  approvedViewer: ""  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  approvedViewer: "git-fix-issue1867"  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
   actualLabel: canary
   actualUrl: >-
     https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/page-margin-box-images.html&zoom=1&spread=false
