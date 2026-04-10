@@ -4,8 +4,8 @@
   "version": "2.40.0",
   "author": "Yasuaki Uechi <y@uechi.io>",
   "scripts": {
-    "build": "microbundle --format modern,cjs && shx rm -rf dist/stories",
-    "build-dev": "microbundle --no-compress --format cjs",
+    "build": "yarn clean && tsc -p tsconfig.build.json && microbundle build -i .microbundle/index.js --format modern,cjs && shx rm -rf dist/stories .microbundle",
+    "build-dev": "yarn clean && tsc -p tsconfig.build.json && microbundle build -i .microbundle/index.js --no-compress --format cjs && shx rm -rf dist/stories .microbundle",
     "build-storybook": "storybook build",
     "clean": "shx rm -rf dist",
     "dev": "yarn storybook",
@@ -39,7 +39,8 @@
     "react-dom": "^19.1.1",
     "react-scripts": "^5.0.1",
     "shx": "^0.3.2",
-    "storybook": "^9.1.8"
+    "storybook": "^9.1.8",
+    "typescript": "^5.9.3"
   },
   "source": "src/index.tsx",
   "types": "dist/index.d.ts",

@@ -19,6 +19,7 @@ Vivliostyle.js offers HTML+CSS typesetting and rich paged viewing with EPUB/Web 
 
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
 - [Packages](#packages)
   - [`@vivliostyle/core`](#vivliostylecore)
