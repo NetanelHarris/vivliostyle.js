@@ -2162,6 +2162,7 @@ export class StyleInstance
     let cont: Task.Result<boolean>;
     let removed = false;
     if (!flowName || !flowName.isIdent()) {
+      const fetchers: TaskUtil.Fetcher<string>[] = [];
       const contentVal = boxInstance.getProp(this, "content");
       if (
         contentVal instanceof Css.Expr &&
@@ -2206,6 +2207,30 @@ export class StyleInstance
           page,
           this.faces,
         );
+        const images = innerContainer.querySelectorAll("img[src]");
+        for (let i = 0; i < images.length; i++) {
+          const image = images[i] as HTMLImageElement;
+          const src = image.getAttribute("src");
+          if (!src) {
+            continue;
+          }
+          const fetcher = Net.loadElement(image, src);
+          fetchers.push(fetcher);
+          page.fetchers.push(fetcher);
+        }
+
+        const rootSrc = innerContainer.getAttribute("src");
+        if (rootSrc) {
+          let image = innerContainer.querySelector(
+            "img",
+          ) as HTMLImageElement | null;
+          if (!image) {
+            image = innerContainer as HTMLImageElement;
+          }
+          const fetcher = Net.loadElement(image, rootSrc);
+          fetchers.push(fetcher);
+          page.fetchers.push(fetcher);
+        }
         if (innerContainerTag == "span") {
           // text-spacing & hanging-punctuation on margin boxes
           TextPolyfill.processGeneratedContent(
@@ -2232,7 +2257,9 @@ export class StyleInstance
           this.faces,
         );
       }
-      cont = Task.newResult(true);
+      cont = fetchers.length
+        ? TaskUtil.waitForFetchers(fetchers).thenReturn(true)
+        : Task.newResult(true);
     } else if (!this.pageBreaks[flowName.toString()]) {
       const innerFrame: Task.Frame<boolean> = Task.newFrame(
         "layoutContainer.inner",
