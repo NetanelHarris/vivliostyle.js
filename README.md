@@ -151,6 +151,9 @@ Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/d
     </tr>
     <tr>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/u1f992"><img src="https://avatars.githubusercontent.com/u/57749636?v=4?s=80" width="80px;" alt="Koutaro Mukai"/><br /><sub><b>Koutaro Mukai</b></sub></a><br /><a href="https://github.com/vivliostyle/vivliostyle.js/commits?author=u1f992" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/depth42"><img src="https://avatars.githubusercontent.com/u/207403?v=4?s=80" width="80px;" alt="Frank Illenberger"/><br /><sub><b>Frank Illenberger</b></sub></a><br /><a href="https://github.com/vivliostyle/vivliostyle.js/commits?author=depth42" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://www.woda.at/"><img src="https://avatars.githubusercontent.com/u/3883758?v=4?s=80" width="80px;" alt="David Mondok"/><br /><sub><b>David Mondok</b></sub></a><br /><a href="https://github.com/vivliostyle/vivliostyle.js/commits?author=davidmondok" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/jdtcn"><img src="https://avatars.githubusercontent.com/u/47177226?v=4?s=80" width="80px;" alt="Sergey"/><br /><sub><b>Sergey</b></sub></a><br /><a href="https://github.com/vivliostyle/vivliostyle.js/commits?author=jdtcn" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>

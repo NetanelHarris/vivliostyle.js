@@ -36,6 +36,7 @@ import * as CssProp from "./css-prop";
 import * as CssStyler from "./css-styler";
 import * as CssTokenizer from "./css-tokenizer";
 import * as CssValidator from "./css-validator";
+import * as Display from "./display";
 import * as Exprs from "./exprs";
 import * as Font from "./font";
 import * as GeometryUtil from "./geometry-util";
@@ -232,6 +233,59 @@ export class Style {
   }
 }
 
+/**
+ * Collect all unique formatting context states from a LayoutPosition.
+ * Formatting contexts (e.g., TableFormattingContext) are stored in
+ * NodePositionStep.formattingContext within flow chunk positions.
+ * This walks the position tree to find them all and save their states,
+ * including those reachable through shadowSibling chains (e.g.,
+ * footnote-call → footnote element transitions). (Issue #1663)
+ */
+function collectFormattingContextStates(
+  layoutPosition: Vtree.LayoutPosition,
+): Map<Vtree.FormattingContext, any> {
+  const states = new Map<Vtree.FormattingContext, any>();
+  const collectFromStep = (step: Vtree.NodePositionStep): void => {
+    if (step.formattingContext && !states.has(step.formattingContext)) {
+      states.set(step.formattingContext, step.formattingContext.saveState());
+    }
+    if (step.shadowSibling) {
+      collectFromStep(step.shadowSibling);
+    }
+  };
+  for (const name in layoutPosition.flowPositions) {
+    const flowPos = layoutPosition.flowPositions[name];
+    for (const fcp of flowPos.positions) {
+      const primary = fcp.chunkPosition.primary;
+      for (const step of primary.steps) {
+        collectFromStep(step);
+      }
+      if (fcp.chunkPosition.floats) {
+        for (const floatPos of fcp.chunkPosition.floats) {
+          for (const step of floatPos.steps) {
+            collectFromStep(step);
+          }
+        }
+      }
+    }
+  }
+  return states;
+}
+
+/**
+ * Restore all formatting context states previously saved by
+ * collectFormattingContextStates(). (Issue #1663)
+ */
+function restoreFormattingContextStates(
+  states: Map<Vtree.FormattingContext, any>,
+): void {
+  for (const [fc, state] of states) {
+    if (state !== undefined) {
+      fc.restoreState(state);
+    }
+  }
+}
+
 //-------------------------------------------------------------------------------
 export class StyleInstance
   extends Exprs.Context
@@ -260,6 +314,13 @@ export class StyleInstance
   pageSheetSize: { [key: string]: { width: number; height: number } } = {};
   pageSheetHeight: number = 0;
   pageSheetWidth: number = 0;
+  private semanticFootnoteFirstRefOffsets: Map<string, number | null> =
+    new Map();
+  private semanticFootnoteFirstRefOffsetsInitialized = { value: false };
+  pageGroupPageCounts: {
+    [pageType: string]: Map<Element, number>;
+  } = Object.create(null);
+  currentPageGroupDocument: Document | null = null;
 
   constructor(
     public readonly style: Style,
@@ -602,6 +663,448 @@ export class StyleInstance
     return offset;
   }
 
+  private getNodePositionOffset(position: Vtree.NodePosition): number {
+    let node = position.steps[0].node;
+    let offsetInNode = position.offsetInNode;
+    let after = position.after;
+    let k = 0;
+    while (node.ownerDocument != this.xmldoc.document) {
+      k++;
+      node = position.steps[k].node;
+      after = false;
+      offsetInNode = 0;
+    }
+    return this.xmldoc.getNodeOffset(node, offsetInNode, after);
+  }
+
+  private getPageStartOffset(
+    layoutPosition?: Vtree.LayoutPosition,
+    noLookAhead?: boolean,
+  ): number {
+    if (!layoutPosition) {
+      return 0;
+    }
+    let currentOffset = Number.POSITIVE_INFINITY;
+    for (const flowName in this.primaryFlows) {
+      let flowPosition = layoutPosition.flowPositions[flowName];
+      if (
+        !noLookAhead &&
+        (!flowPosition || flowPosition.positions.length == 0) &&
+        this.currentLayoutPosition
+      ) {
+        this.styler.styleUntilFlowIsReached(flowName);
+        flowPosition = this.currentLayoutPosition.flowPositions[flowName];
+        if (layoutPosition != this.currentLayoutPosition) {
+          if (flowPosition) {
+            flowPosition = flowPosition.clone();
+            layoutPosition.flowPositions[flowName] = flowPosition;
+          }
+        }
+      }
+      if (flowPosition) {
+        for (let i = 0; i < flowPosition.positions.length; i++) {
+          const pos = flowPosition.positions[i].chunkPosition.primary;
+          const offset = this.getNodePositionOffset(pos);
+          if (offset < currentOffset) {
+            currentOffset = offset;
+          }
+        }
+      }
+    }
+    return currentOffset;
+  }
+
+  private getPageStartCounterOffsets(layoutPosition: Vtree.LayoutPosition): {
+    counterOffset: number;
+    changeOffset: number;
+  } {
+    const pageStartOffset = this.getPageStartOffset(layoutPosition);
+    if (!isFinite(pageStartOffset)) {
+      return { counterOffset: pageStartOffset, changeOffset: pageStartOffset };
+    }
+    const searchRoot = this.xmldoc.body || this.xmldoc.root;
+    const startElement = searchRoot
+      ? this.getFirstInFlowElementAtOrAfter(searchRoot, pageStartOffset)
+      : null;
+    const searchRootOffset = searchRoot
+      ? this.xmldoc.getElementOffset(searchRoot)
+      : pageStartOffset;
+    // Document start: page starts at or before the body/root element offset.
+    const isDocumentStart = pageStartOffset <= searchRootOffset;
+    const resolvedStartElement =
+      startElement === searchRoot && isDocumentStart
+        ? this.getFirstInFlowChildElement(searchRoot)
+        : startElement;
+    if (!resolvedStartElement) {
+      return { counterOffset: pageStartOffset, changeOffset: pageStartOffset };
+    }
+    const changeOffset = this.xmldoc.getElementOffset(resolvedStartElement);
+    let counterOffset = pageStartOffset;
+    if (isDocumentStart && changeOffset !== pageStartOffset) {
+      counterOffset = changeOffset;
+    }
+    // When the page starts exactly at an element boundary, adjust for inline
+    // starts so margin-box counters reflect the pre-consumed state.
+    if (changeOffset === pageStartOffset) {
+      if (this.isInlineLevelElement(resolvedStartElement)) {
+        counterOffset = Math.max(0, pageStartOffset - 1);
+      } else {
+        counterOffset =
+          this.getDeepestFirstInFlowChildOffset(resolvedStartElement);
+      }
+    }
+    return { counterOffset, changeOffset };
+  }
+
+  private getPageStartElement(
+    layoutPosition: Vtree.LayoutPosition,
+    pageStartOffset: number = this.getPageStartOffset(layoutPosition),
+  ): Element | null {
+    if (!isFinite(pageStartOffset)) {
+      return null;
+    }
+    const searchRoot = this.xmldoc.body || this.xmldoc.root;
+    if (!searchRoot) {
+      return null;
+    }
+    const startElement = this.getFirstInFlowElementAtOrAfter(
+      searchRoot,
+      pageStartOffset,
+    );
+    const searchRootOffset = this.xmldoc.getElementOffset(searchRoot);
+    const isDocumentStart = pageStartOffset <= searchRootOffset;
+    return startElement === searchRoot && isDocumentStart
+      ? this.getFirstInFlowChildElement(searchRoot)
+      : startElement;
+  }
+
+  private isForcedPageBreakValue(value: string | null): boolean {
+    return (
+      Break.isForcedBreakValue(value) &&
+      value !== "column" &&
+      value !== "region"
+    );
+  }
+
+  private hasForcedPageBreakBefore(style: CssCascade.ElementStyle): boolean {
+    const breakValue = CssCascade.getProp(style, "break-before");
+    if (!breakValue) {
+      return false;
+    }
+    const resolvedBreakValue = breakValue
+      .evaluate(this, "break-before")
+      .toString();
+    return this.isForcedPageBreakValue(resolvedBreakValue);
+  }
+
+  private getExplicitPageType(style: CssCascade.ElementStyle): string | null {
+    const pageValue = CssCascade.getProp(style, "page");
+    if (!pageValue) {
+      return null;
+    }
+    const pageType = pageValue.evaluate(this, "page").toString();
+    if (!pageType || pageType.toLowerCase() === "auto") {
+      return null;
+    }
+    return pageType;
+  }
+
+  private getPageGroupPageType(element: Element): string | null {
+    const style = this.styler.getStyle(element, false);
+    if (!style) {
+      return null;
+    }
+    return this.getExplicitPageType(style);
+  }
+
+  private getPreviousInFlowSibling(element: Element): Element | null {
+    let sibling = element.previousElementSibling;
+    while (sibling) {
+      if (this.isNormalFlowElement(sibling)) {
+        return sibling;
+      }
+      sibling = sibling.previousElementSibling;
+    }
+    return null;
+  }
+
+  private getFirstDocumentFlowElement(): Element | null {
+    const searchRoot = this.xmldoc.body || this.xmldoc.root;
+    if (!searchRoot) {
+      return null;
+    }
+    const searchRootOffset = this.xmldoc.getElementOffset(searchRoot);
+    const startElement = this.getFirstInFlowElementAtOrAfter(
+      searchRoot,
+      searchRootOffset,
+    );
+    return startElement === searchRoot
+      ? this.getFirstInFlowChildElement(searchRoot)
+      : startElement;
+  }
+
+  /**
+   * Resolve the page type for the first page by examining the first in-flow
+   * element's CSS `page` property. This is needed because `currentPageType`
+   * is only set during layout (in ViewFactory), but the first page's type
+   * must be known before layout begins for correct @page rule matching.
+   */
+  private resolveFirstPageType(): string | null {
+    const firstElement = this.getFirstDocumentFlowElement();
+    if (!firstElement) {
+      return null;
+    }
+    const pageType = this.getPageGroupPageType(firstElement);
+    if (pageType) {
+      this.styler.cascade.currentPageType = pageType;
+    }
+    return pageType;
+  }
+
+  private shouldStartPageGroup(
+    element: Element,
+    pageType: string,
+    pageStartOffset: number,
+  ): boolean {
+    const style = this.styler.getStyle(element, false);
+    if (!style) {
+      return false;
+    }
+
+    if (this.getFirstDocumentFlowElement() === element) {
+      return true;
+    }
+
+    const elementOffset = this.xmldoc.getElementOffset(element);
+    const searchRoot = this.xmldoc.body || this.xmldoc.root;
+    const searchRootOffset = this.xmldoc.getElementOffset(searchRoot);
+    const isDocumentStart = pageStartOffset <= searchRootOffset;
+
+    // Root/body page groups can start at document start even when the first
+    // in-flow element is a descendant.
+    if (isDocumentStart && element === searchRoot) {
+      return true;
+    }
+
+    if (
+      !this.getPreviousInFlowSibling(element) &&
+      pageStartOffset === elementOffset
+    ) {
+      return true;
+    }
+
+    if (elementOffset !== pageStartOffset) {
+      return false;
+    }
+
+    if (this.hasForcedPageBreakBefore(style)) {
+      return true;
+    }
+
+    const previousSibling = this.getPreviousInFlowSibling(element);
+    if (!previousSibling) {
+      return false;
+    }
+    const previousStyle = this.styler.getStyle(previousSibling, false);
+    if (!previousStyle) {
+      return false;
+    }
+
+    const previousPageType = this.getExplicitPageType(previousStyle);
+    return previousPageType !== pageType;
+  }
+
+  private updatePageGroupPageIndices(
+    layoutPosition: Vtree.LayoutPosition,
+  ): void {
+    const pageCascade = this.pageManager.pageCascadeInstance;
+    pageCascade.pageTypePageIndices = Object.create(null);
+    const startSide = layoutPosition.startSideOfFlow("body");
+    const bodyFlowPosition = layoutPosition.flowPositions["body"];
+    const hasBodyFlowContent = !!(
+      bodyFlowPosition && bodyFlowPosition.positions.length
+    );
+    const isSpreadDeferredBlankPage =
+      Break.isSpreadBreakValue(startSide) &&
+      !this.matchPageSide(startSide) &&
+      !hasBodyFlowContent;
+    // A synthetic blank first page can be inserted between concatenated
+    // documents for spread alignment (issue #666). It must not consume
+    // :nth(An+B of <page-type>) page-group indices.
+    const isBlankPageAtDocumentStart =
+      this.blankPageAtStart && layoutPosition.page === 1;
+    const canStartNewPageGroup =
+      !isBlankPageAtDocumentStart &&
+      !layoutPosition.isBlankPage &&
+      !isSpreadDeferredBlankPage;
+
+    const pageStartOffset = this.getPageStartOffset(layoutPosition);
+    const startElement = this.getPageStartElement(
+      layoutPosition,
+      pageStartOffset,
+    );
+
+    if (!startElement) {
+      return;
+    }
+
+    const startDocument = startElement.ownerDocument;
+    const isNewPageGroupDocument =
+      this.currentPageGroupDocument !== startDocument;
+    // Do not consume new-document boundary on synthetic blank pages at start;
+    // keep it for the first real content page.
+    const shouldActivateNewPageGroupDocument =
+      isNewPageGroupDocument && canStartNewPageGroup;
+    if (shouldActivateNewPageGroupDocument) {
+      this.pageGroupPageCounts = Object.create(null);
+      this.currentPageGroupDocument = startDocument;
+    }
+
+    let currentElement: Element | null = startElement;
+    while (currentElement) {
+      const pageType = this.getPageGroupPageType(currentElement);
+      if (pageType) {
+        const countsByElement =
+          this.pageGroupPageCounts[pageType] ||
+          (this.pageGroupPageCounts[pageType] = new Map());
+        let pageIndex = countsByElement.get(currentElement) || 0;
+        if (
+          pageIndex > 0 ||
+          (canStartNewPageGroup &&
+            (shouldActivateNewPageGroupDocument ||
+              this.shouldStartPageGroup(
+                currentElement,
+                pageType,
+                pageStartOffset,
+              )))
+        ) {
+          pageIndex += 1;
+          countsByElement.set(currentElement, pageIndex);
+
+          const pageTypeIndices =
+            pageCascade.pageTypePageIndices[pageType] ||
+            (pageCascade.pageTypePageIndices[pageType] = []);
+          pageTypeIndices.push(pageIndex);
+        }
+      }
+
+      if (currentElement === this.xmldoc.root) {
+        break;
+      }
+      currentElement = currentElement.parentElement;
+    }
+  }
+
+  private getFirstInFlowElementAtOrAfter(
+    root: Element,
+    offset: number,
+  ): Element | null {
+    if (
+      this.isNormalFlowElement(root) &&
+      this.xmldoc.getElementOffset(root) >= offset
+    ) {
+      return root;
+    }
+    const walker = root.ownerDocument.createTreeWalker(
+      root,
+      NodeFilter.SHOW_ELEMENT,
+      {
+        acceptNode: (node) => {
+          const element = node as Element;
+          if (!this.isNormalFlowElement(element)) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          const nodeOffset = this.xmldoc.getElementOffset(element);
+          if (nodeOffset < offset) {
+            return NodeFilter.FILTER_SKIP;
+          }
+          return NodeFilter.FILTER_ACCEPT;
+        },
+      },
+    );
+    const node = walker.firstChild() as Element | null;
+    return node ?? null;
+  }
+
+  private getDeepestFirstInFlowChildOffset(root: Element): number {
+    let current = root;
+    while (true) {
+      const child = this.getFirstInFlowChildElement(current);
+      if (!child) {
+        return this.xmldoc.getElementOffset(current);
+      }
+      current = child;
+    }
+  }
+
+  private getFirstInFlowChildElement(root: Element): Element | null {
+    let child = root.firstChild;
+    while (child) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        if (!Vtree.canIgnore(child)) {
+          return null;
+        }
+        child = child.nextSibling;
+        continue;
+      }
+      if (child.nodeType !== Node.ELEMENT_NODE) {
+        child = child.nextSibling;
+        continue;
+      }
+      const element = child as Element;
+      if (this.isNormalFlowElement(element)) {
+        return element;
+      }
+      child = child.nextSibling;
+    }
+    return null;
+  }
+
+  private isNormalFlowElement(element: Element): boolean {
+    const style = this.styler.getStyle(element, false);
+    const display = this.getDisplayValue(element);
+    if (display === Css.ident.none) {
+      return false;
+    }
+    const positionVal = (
+      style?.["position"] as CssCascade.CascadeValue
+    )?.evaluate(this.styler.context, "position");
+    const position =
+      positionVal && !Css.isDefaultingValue(positionVal)
+        ? positionVal
+        : Css.ident.static;
+    if (
+      Display.isRunning(position) ||
+      Display.isAbsolutelyPositioned(position)
+    ) {
+      return false;
+    }
+    const floatVal = (style?.["float"] as CssCascade.CascadeValue)?.evaluate(
+      this.styler.context,
+      "float",
+    );
+    const float =
+      floatVal && !Css.isDefaultingValue(floatVal) ? floatVal : Css.ident.none;
+    if (float !== Css.ident.none) {
+      return false;
+    }
+    return true;
+  }
+
+  private isInlineLevelElement(element: Element): boolean {
+    return Display.isInlineLevel(this.getDisplayValue(element));
+  }
+
+  private getDisplayValue(element: Element): Css.Ident {
+    const style = this.styler.getStyle(element, false);
+    const displayVal = (
+      style?.["display"] as CssCascade.CascadeValue
+    )?.evaluate(this.styler.context, "display");
+    return displayVal && !Css.isDefaultingValue(displayVal)
+      ? (displayVal as Css.Ident)
+      : Css.ident.inline;
+  }
+
   /**
    * @param noLookAhead Do not look ahead elements that are not styled yet
    * @return document offset of the given layoutPosition
@@ -833,10 +1336,43 @@ export class StyleInstance
     column.flowRootFormattingContext = flow.formattingContext;
   }
 
+  beginIsolatedRootPageFloatLayoutContext(): PageFloats.PageFloatLayoutContext {
+    const originalRootPageFloatLayoutContext = this.rootPageFloatLayoutContext;
+    this.rootPageFloatLayoutContext = new PageFloats.PageFloatLayoutContext(
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+    );
+    return originalRootPageFloatLayoutContext;
+  }
+
+  endIsolatedRootPageFloatLayoutContext(
+    originalRootPageFloatLayoutContext: PageFloats.PageFloatLayoutContext,
+  ): void {
+    this.rootPageFloatLayoutContext = originalRootPageFloatLayoutContext;
+  }
+
+  hasActiveRootPageFloatLayoutContext(): boolean {
+    return (
+      this.rootPageFloatLayoutContext.getDeferredPageFloatContinuations()
+        .length > 0 ||
+      this.rootPageFloatLayoutContext.getPageFloatContinuationsDeferredToNext()
+        .length > 0 ||
+      this.rootPageFloatLayoutContext.getFloatsDeferredToNextInChildContexts()
+        .length > 0
+    );
+  }
+
   layoutDeferredPageFloats(column: LayoutType.Column): Task.Result<boolean> {
     const pageFloatLayoutContext = column.pageFloatLayoutContext;
     const deferredFloats =
       pageFloatLayoutContext.getDeferredPageFloatContinuations();
+    const inCounterResolveScope =
+      this.counterStore.currentPageCountersStack.length > 0;
 
     // Prevent deferred page floats from appearing in the preceding pages,
     // e.g., during re-layout the TOC page with target-counter() referencing
@@ -844,14 +1380,22 @@ export class StyleInstance
     const checkPageFloatForLaterPage = (
       float: PageFloats.PageFloat,
     ): boolean => {
+      if (!inCounterResolveScope) {
+        return false;
+      }
       // FIXME: This check is incomplete when float-reference is other than "page".
       // so give up for now to prevent another problem (Issue #962, #1273).
       if (float.floatReference !== PageFloats.FloatReference.PAGE) {
         return false;
       }
-      const pageStartPos = this.layoutPositionAtPageStart.flowPositions.body;
-      const pageStartOffset =
-        pageStartPos && this.getConsumedOffset(pageStartPos);
+      const pageStartPos =
+        this.layoutPositionAtPageStart?.flowPositions?.body || null;
+      const pageStartOffsetFromBody = pageStartPos
+        ? this.getConsumedOffset(pageStartPos)
+        : Number.NaN;
+      const pageStartOffset = isFinite(pageStartOffsetFromBody)
+        ? pageStartOffsetFromBody
+        : this.getPageStartOffset(this.layoutPositionAtPageStart, true);
       const deferredFloatOffset = this.xmldoc.getNodeOffset(
         float.nodePosition.steps[0].node,
         0,
@@ -859,7 +1403,7 @@ export class StyleInstance
       );
       return (
         deferredFloatOffset != null &&
-        pageStartOffset != null &&
+        isFinite(pageStartOffset) &&
         deferredFloatOffset > pageStartOffset
       );
     };
@@ -1192,6 +1736,9 @@ export class StyleInstance
             layoutConstraint,
             columnPageFloatLayoutContext,
           );
+          // Issue #1842: mark columns created after the first one so layout can
+          // treat already-satisfied leading column breaks differently.
+          column.isNonFirstColumn = currentColumnIndex > 0;
           column.forceNonfitting = forceNonFitting;
           column.vertical = layoutContainer.vertical;
           column.rtl = layoutContainer.rtl;
@@ -1233,6 +1780,8 @@ export class StyleInstance
             layoutConstraint,
             columnPageFloatLayoutContext,
           );
+          // Single-column layout always behaves like the first column on a page.
+          column.isNonFirstColumn = false;
           column.copyFrom(layoutContainer);
         }
         column.exclusions = dontApplyExclusions ? [] : exclusions.concat();
@@ -1405,6 +1954,15 @@ export class StyleInstance
     const frame: Task.Frame<LayoutType.Column[] | null> =
       Task.newFrame("layoutFlowColumns");
     const positionAtContainerStart = this.currentLayoutPosition.clone();
+    // Save formatting context states so they can be restored on region-level
+    // retry (e.g., when footnotes invalidate the page float context).
+    // LayoutPosition.clone() shares formatting context objects by reference
+    // (via NodePositionStep.formattingContext), so modifications like
+    // cellBreakPositions in TableFormattingContext persist across retries
+    // unless explicitly restored. (Issue #1663)
+    const savedRegionFCStates = collectFormattingContextStates(
+      this.currentLayoutPosition,
+    );
     const columnGap = boxInstance.getPropAsNumber(this, "column-gap");
 
     // Don't query columnWidth when it's not needed, so that width calculation
@@ -1441,6 +1999,8 @@ export class StyleInstance
       this.documentURLTransformer,
       this.style.pageProps,
       this.currentCascadedPageStyle,
+      this.semanticFootnoteFirstRefOffsets,
+      this.semanticFootnoteFirstRefOffsetsInitialized,
     );
     let columnIndex = 0;
     let column: LayoutType.Column = null;
@@ -1479,6 +2039,9 @@ export class StyleInstance
           if (regionPageFloatLayoutContext.isInvalidated()) {
             columnIndex = 0;
             this.currentLayoutPosition = positionAtContainerStart.clone();
+            // Restore formatting context states on region-level retry
+            // (Issue #1663)
+            restoreFormattingContextStates(savedRegionFCStates);
             regionPageFloatLayoutContext.validate();
             if (regionPageFloatLayoutContext.isLocked()) {
               columns = null;
@@ -1859,33 +2422,30 @@ export class StyleInstance
     page.isBlankPage = cp.isBlankPage;
     cp.page++;
 
-    // Save previous page type before it gets updated
-    const prevPageType = this.styler.cascade.previousPageType;
-
     if (page.pageType == null) {
       page.pageType =
         (page.isBlankPage
           ? this.styler.cascade.previousPageType
-          : this.styler.cascade.currentPageType) ?? "";
+          : this.styler.cascade.currentPageType) ??
+        (cp.page === 1 ? this.resolveFirstPageType() : null) ??
+        "";
       // Fix for issue #1309
       this.styler.cascade.previousPageType =
         this.styler.cascade.currentPageType;
     }
 
-    // Update page type page counts for :nth(An+B of <page-type>) selector
-    // Use pageCascadeInstance which is used for page rule evaluation
-    const pageCascade = this.pageManager.pageCascadeInstance;
-    if (page.pageType) {
-      // If page type changed from the previous page, reset count for the new page type (new page group)
-      if (prevPageType !== page.pageType) {
-        pageCascade.pageTypePageCounts[page.pageType] = 0;
-      }
-      pageCascade.pageTypePageCounts[page.pageType] =
-        (pageCascade.pageTypePageCounts[page.pageType] || 0) + 1;
-    }
+    // Update page group page indices for :nth(An+B of <page-type>) selector
+    this.updatePageGroupPageIndices(cp);
 
     this.clearScope(this.style.pageScope);
     this.layoutPositionAtPageStart = cp.clone();
+    // Save formatting context states at the beginning of page layout for
+    // restoration when page-level retry occurs (Issue #1663).
+    // Formatting contexts (e.g., TableFormattingContext with cellBreakPositions)
+    // are stored in NodePositionStep.formattingContext and shared by reference
+    // across LayoutPosition.clone(). Modifications during layout persist unless
+    // explicitly restored.
+    const savedPageFCStates = collectFormattingContextStates(cp);
 
     // Resolve page size before page master selection.
     const cascadedPageStyle = isTocBox
@@ -1930,6 +2490,33 @@ export class StyleInstance
       page.setAutoPageHeight(
         (pageMaster.pageBox.specified["height"] as CssCascade.CascadeValue)
           .value === Css.fullHeight,
+      );
+      // Use counters recorded at the start layout position for this page.
+      let { counterOffset: pageStartOffset, changeOffset: pageChangeOffset } =
+        this.getPageStartCounterOffsets(this.layoutPositionAtPageStart);
+      if (!isFinite(pageStartOffset)) {
+        pageStartOffset = this.lookupOffset;
+        pageChangeOffset = this.lookupOffset;
+      }
+      if (isFinite(pageStartOffset)) {
+        this.styler.styleUntil(pageStartOffset, 0);
+      }
+      let pageStartSnapshot =
+        this.styler.getCounterSnapshotAtOffset(pageStartOffset);
+      let pageChangeSnapshot =
+        pageChangeOffset === pageStartOffset
+          ? pageStartSnapshot
+          : this.styler.getCounterSnapshotAtOffset(pageChangeOffset);
+      if (!pageStartSnapshot) {
+        pageStartSnapshot = this.styler.getLastCounterSnapshot();
+      }
+      if (!pageChangeSnapshot) {
+        pageChangeSnapshot = pageStartSnapshot;
+      }
+      this.counterStore.setCurrentPageDocCounters(
+        pageStartSnapshot?.counters ?? null,
+        pageChangeSnapshot?.changes ?? null,
+        pageChangeSnapshot?.changeTypes,
       );
       this.counterStore.setCurrentPage(page);
       this.counterStore.updatePageCounters(cascadedPageStyle, this);
@@ -1986,7 +2573,14 @@ export class StyleInstance
           }
           if (pageFloatLayoutContext.isInvalidated()) {
             this.currentLayoutPosition = this.layoutPositionAtPageStart.clone();
+            // Restore formatting context states on page-level retry
+            // (Issue #1663)
+            restoreFormattingContextStates(savedPageFCStates);
             pageFloatLayoutContext.validate();
+            // Clear bleedBox children before retry to avoid duplicate page-box elements
+            while (page.bleedBox.lastChild) {
+              page.bleedBox.removeChild(page.bleedBox.lastChild);
+            }
             loopFrame.continueLoop();
           } else {
             loopFrame.breakLoop();
@@ -2203,7 +2797,6 @@ export class BaseParserHandler extends CssCascade.CascadeParserHandler {
       this,
       this.validatorSet,
       this.masterHandler.pageProps,
-      this.masterHandler.footnoteProps,
     );
     this.masterHandler.pushHandler(pageHandler);
     pageHandler.startPageRule();

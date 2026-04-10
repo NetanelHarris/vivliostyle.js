@@ -513,7 +513,7 @@ export class PrimitiveValidator extends PropertyValidator {
 
   override visitFunc(func: Css.Func): Css.Val {
     if (this.allowed & ALLOW_COLOR) {
-      if (func.name === "device-cmyk") {
+      if (func.name === "device-cmyk" || func.name === "cmyk") {
         if (
           CSS.supports("color", "color(srgb 0 0 0)") &&
           CmykStore.parseDeviceCmyk(func) !== null
@@ -576,7 +576,7 @@ export class PrimitiveValidator extends PropertyValidator {
   }
 }
 
-const NO_IDENTS: ValueMap = {};
+const NO_IDENTS: ValueMap = Object.create(null);
 
 export const ALWAYS_FAIL = new PrimitiveValidator(0, NO_IDENTS, NO_IDENTS);
 
@@ -1437,6 +1437,7 @@ const propsExcludedFromAll = [
   "shape-inside",
   "snap-height",
   "snap-width",
+  "src", // @font-face descriptor
   "template",
   "text-decoration-skip",
   "text-justify",

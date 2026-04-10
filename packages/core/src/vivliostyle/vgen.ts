@@ -39,6 +39,7 @@ import * as Plugin from "./plugin";
 import * as PseudoElement from "./pseudo-element";
 import * as RepetitiveElement from "./repetitive-element";
 import * as Scripts from "./scripts";
+import * as SemanticFootnote from "./semantic-footnote";
 import * as Task from "./task";
 import * as TaskUtil from "./task-util";
 import * as Urls from "./urls";
@@ -104,6 +105,7 @@ export class ViewFactory
     "stroke",
     "mask",
   ];
+  private static FOOTNOTE_CALL_OWNER_ATTR = "data-viv-footnote-call-owner";
   document: Document;
   exprContentListener: Vtree.ExprContentListener;
 
@@ -134,6 +136,13 @@ export class ViewFactory
     public readonly documentURLTransformer: Base.DocumentURLTransformer,
     public readonly pageProps?: { [key: string]: CssCascade.ElementStyle },
     public readonly cascadedPageStyle?: CssCascade.ElementStyle,
+    private readonly semanticFootnoteFirstRefOffsets: Map<
+      string,
+      number | null
+    > = new Map(),
+    private readonly semanticFootnoteFirstRefOffsetsInitialized: {
+      value: boolean;
+    } = { value: false },
   ) {
     super();
     this.document = viewport.document;
@@ -158,7 +167,71 @@ export class ViewFactory
       this.documentURLTransformer,
       this.pageProps,
       this.cascadedPageStyle,
+      this.semanticFootnoteFirstRefOffsets,
+      this.semanticFootnoteFirstRefOffsetsInitialized,
     );
+  }
+
+  private initializeSemanticFootnoteFirstRefOffsets(ownerDocument: Document) {
+    if (this.semanticFootnoteFirstRefOffsetsInitialized.value) {
+      return;
+    }
+    const anchorElements = ownerDocument.getElementsByTagName("a");
+    for (let i = 0; i < anchorElements.length; i++) {
+      const anchor = anchorElements.item(i);
+      if (!SemanticFootnote.isSemanticFootnoteNoterefElement(anchor)) {
+        continue;
+      }
+      const anchorHref =
+        anchor.getAttribute("href") ||
+        anchor.getAttributeNS(Base.NS.XLINK, "href");
+      if (!anchorHref) {
+        continue;
+      }
+      const resolvedHref = Base.resolveReferenceURL(
+        anchorHref,
+        this.xmldoc.url,
+      );
+      if (resolvedHref === "#") {
+        continue;
+      }
+      if (this.semanticFootnoteFirstRefOffsets.has(resolvedHref)) {
+        continue;
+      }
+      this.semanticFootnoteFirstRefOffsets.set(
+        resolvedHref,
+        this.xmldoc.getElementOffset(anchor),
+      );
+    }
+    this.semanticFootnoteFirstRefOffsetsInitialized.value = true;
+  }
+
+  /**
+   * True only for the first semantic footnote reference to the same target.
+   */
+  private shouldGenerateSemanticFootnote(element: Element): boolean {
+    if (
+      element.localName !== "a" ||
+      !SemanticFootnote.isSemanticFootnoteNoterefElement(element)
+    ) {
+      return true;
+    }
+    const href =
+      element.getAttribute("href") ||
+      element.getAttributeNS(Base.NS.XLINK, "href");
+    if (!href) {
+      return true;
+    }
+    const resolvedHref = Base.resolveReferenceURL(href, this.xmldoc.url);
+    if (resolvedHref === "#") {
+      return true;
+    }
+    this.initializeSemanticFootnoteFirstRefOffsets(element.ownerDocument);
+    const firstOffset = this.semanticFootnoteFirstRefOffsets.get(resolvedHref);
+    if (firstOffset == null) {
+      return true;
+    }
+    return this.xmldoc.getElementOffset(element) === firstOffset;
   }
 
   createPseudoelementShadow(
@@ -190,7 +263,11 @@ export class ViewFactory
         if (!pseudoMap[name]) {
           continue;
         }
-        if (name == "footnote-marker" && !(isRoot && this.isFootnote)) {
+        if (
+          name == "footnote-marker" &&
+          !(isRoot && this.isFootnote) &&
+          !this.nodeContext?.pluginProps["nestedFootnoteDetached"] // (Issue #1352)
+        ) {
           continue;
         }
         if (name.match(/^first-/)) {
@@ -212,18 +289,13 @@ export class ViewFactory
             }
           }
         }
-        if (name === "before" || name === "after" || name === "marker") {
+        if (
+          name === "before" ||
+          name === "after" ||
+          name === "footnote-marker"
+        ) {
           const content = pseudoMap[name]["content"] as CssCascade.CascadeValue;
           if (!content || !Vtree.nonTrivialContent(content.value)) {
-            continue;
-          }
-          if (
-            name === "marker" &&
-            (!Display.isListItem(computedStyle["display"]) ||
-              // Disable ::marker for "toc-node" in the TOC box
-              CssCascade.getProp(cascStyle, "behavior")?.value ===
-                Css.getName("toc-node"))
-          ) {
             continue;
           }
         }
@@ -251,7 +323,7 @@ export class ViewFactory
       context,
       this.exprContentListener,
     );
-    return new Vtree.ShadowContext(
+    const pseudoShadow = new Vtree.ShadowContext(
       element,
       root,
       null,
@@ -260,6 +332,7 @@ export class ViewFactory
       Vtree.ShadowType.ROOTLESS,
       shadowStyler,
     );
+    return subShadow || pseudoShadow;
   }
 
   getPseudoMap(
@@ -354,17 +427,24 @@ export class ViewFactory
       templateURLVal instanceof Css.URL ||
       templateURLVal === Css.ident.footnote
     ) {
-      const url =
-        templateURLVal instanceof Css.URL
-          ? templateURLVal.url
-          : Base.resolveURL("user-agent.xml#footnote", Base.resourceBaseURL);
-      cont = this.createRefShadow(
-        url,
-        Vtree.ShadowType.ROOTLESS,
-        element,
-        shadowContext,
-        shadow,
-      );
+      if (
+        templateURLVal !== Css.ident.footnote ||
+        this.shouldGenerateSemanticFootnote(element)
+      ) {
+        const url =
+          templateURLVal instanceof Css.URL
+            ? templateURLVal.url
+            : Base.resolveURL("user-agent.xml#footnote", Base.resourceBaseURL);
+        cont = this.createRefShadow(
+          url,
+          Vtree.ShadowType.ROOTLESS,
+          element,
+          shadowContext,
+          shadow,
+        );
+      } else {
+        cont = Task.newResult(shadow);
+      }
     } else {
       cont = Task.newResult(shadow);
     }
@@ -387,7 +467,7 @@ export class ViewFactory
               : this.xmldoc;
           }
           if (href) {
-            href = Base.resolveURL(href, xmldoc.url);
+            href = Base.resolveReferenceURL(href, xmldoc.url);
             cont1 = this.createRefShadow(
               href,
               Vtree.ShadowType.ROOTED,
@@ -565,16 +645,66 @@ export class ViewFactory
     let node = this.nodeContext.sourceNode;
     const styles = [];
     let lang: string | null = null;
+    const isFootnoteContentInclude =
+      node instanceof Element &&
+      node.namespaceURI === Base.NS.SHADOW &&
+      node.localName === "include" &&
+      node.classList.contains("-vivliostyle-footnote-content");
+    const shouldSkipAncestorMarkerProps =
+      this.isFootnote &&
+      (!this.nodeContext?.parent || isFootnoteContentInclude);
 
     // TODO: this is hacky. We need to recover the path through the shadow
     // trees, but we do not have the full shadow tree structure at this point.
     // This code handles coming out of the shadow trees, but does not go back in
     // (through shadow:content element).
     let shadowContext = this.nodeContext.shadowContext;
+
+    // For semantic footnotes, the wrapper generated from
+    // <s:include class="-vivliostyle-footnote-content"> should inherit from
+    // the referenced footnote's source parent, not from the noteref owner.
+    // (Issue #1770)
+    if (
+      node instanceof Element &&
+      node.namespaceURI === Base.NS.SHADOW &&
+      node.localName === "include" &&
+      node.classList.contains("-vivliostyle-footnote-content")
+    ) {
+      const owner = shadowContext?.owner;
+      if (
+        owner instanceof Element &&
+        SemanticFootnote.isSemanticFootnoteNoterefElement(owner)
+      ) {
+        const href =
+          owner.getAttribute("href") ||
+          owner.getAttributeNS(Base.NS.XLINK, "href");
+        if (href) {
+          const resolvedHref = Base.resolveReferenceURL(href, this.xmldoc.url);
+          const target = this.xmldoc.getElement(resolvedHref);
+          if (
+            target &&
+            SemanticFootnote.isSemanticFootnoteElement(target) &&
+            target.parentNode?.nodeType === 1
+          ) {
+            node = target.parentNode;
+            shadowContext = null;
+          }
+        }
+      }
+    }
+
     let steps = -1;
     while (node && node.nodeType == 1) {
       const shadowRoot = shadowContext && shadowContext.root == node;
-      if (!shadowRoot || shadowContext.type == Vtree.ShadowType.ROOTLESS) {
+      const semanticFootnoteRootInRootedShadow =
+        !!shadowRoot &&
+        shadowContext.type == Vtree.ShadowType.ROOTED &&
+        SemanticFootnote.isSemanticFootnoteElement(node as Element);
+      if (
+        !shadowRoot ||
+        shadowContext.type == Vtree.ShadowType.ROOTLESS ||
+        semanticFootnoteRootInRootedShadow
+      ) {
         const styler = shadowContext
           ? (shadowContext.styler as CssStyler.AbstractStyler)
           : this.styler;
@@ -582,7 +712,7 @@ export class ViewFactory
         styles.push(nodeStyle);
         lang = lang || Base.getLangAttribute(node as Element);
       }
-      if (shadowRoot) {
+      if (shadowRoot && !semanticFootnoteRootInRootedShadow) {
         node = shadowContext.owner;
         shadowContext = shadowContext.parentShadow;
       } else {
@@ -590,6 +720,38 @@ export class ViewFactory
         steps++;
       }
     }
+
+    // When reconstructing inherited values for detached/transcluded nodes,
+    // keep declarations on the current element (including region-specific
+    // rules such as :footnote-content) authoritative over ancestor-derived
+    // inherited values.
+    const blockedInheritedByCurrent = new Set<string>();
+    if (styles.length > 0) {
+      const currentStyle = styles[0];
+      const flattenedCurrentStyle = CssCascade.flattenCascadedStyle(
+        currentStyle,
+        this.context,
+        this.regionIds,
+        this.isFootnote,
+        this.nodeContext,
+      );
+      for (const name in flattenedCurrentStyle) {
+        if (!CssCascade.isInherited(name)) {
+          continue;
+        }
+        const value = flattenedCurrentStyle[name].evaluate(this.context, name);
+        if (
+          value &&
+          value !== Css.ident.inherit &&
+          value !== Css.ident.unset &&
+          value !== Css.ident.revert &&
+          value !== Css.empty
+        ) {
+          blockedInheritedByCurrent.add(name);
+        }
+      }
+    }
+
     const isRoot = steps === 0;
     const fontSize = this.context.queryUnitSize("em", isRoot);
     const props = {
@@ -621,10 +783,25 @@ export class ViewFactory
       let lineHeight: Css.Val;
 
       for (const name of propList) {
+        if (
+          i > 0 &&
+          shouldSkipAncestorMarkerProps &&
+          name.startsWith("--viv-marker-")
+        ) {
+          continue;
+        }
+        if (i > 0 && blockedInheritedByCurrent.has(name)) {
+          continue;
+        }
         inheritanceVisitor.setPropName(name);
         const prop = CssCascade.getProp(style, name);
         let prop1 = prop;
-        if (!Css.isDefaultingValue(prop.value)) {
+        if (prop.value === Css.ident.initial) {
+          // `initial` means use the CSS initial value, not inherit from
+          // ancestor. This is needed for `all: initial` to work on elements
+          // detached from their source parent (e.g. footnotes). (Issue #1696)
+          delete props[name];
+        } else if (!Css.isDefaultingValue(prop.value)) {
           if (
             name === "font-size" &&
             i === styles.length - 1 &&
@@ -818,13 +995,18 @@ export class ViewFactory
       !Css.isDefaultingValue(floatReferenceCV.value)
         ? PageFloats.floatReferenceOf(floatReferenceCV.value.toString())
         : null;
+    const isSemanticFootnoteInRootedShadow =
+      !!this.nodeContext.shadowContext &&
+      this.nodeContext.shadowContext.type === Vtree.ShadowType.ROOTED &&
+      SemanticFootnote.isSemanticFootnoteElement(element);
     if (
       this.nodeContext.parent &&
       (Display.isRunning(positionCV?.value) ||
-        (floatReference && PageFloats.isPageFloat(floatReference)))
+        (floatReference && PageFloats.isPageFloat(floatReference)) ||
+        isSemanticFootnoteInRootedShadow)
     ) {
-      // Since a page float will be detached from a view node of its parent,
-      // inherited properties need to be inherited from its source parent.
+      // Detached or transcluded content should inherit from the source tree,
+      // not from the synthetic view parent.
       const inheritedValues = this.inheritFromSourceParent(elementStyle);
       elementStyle = inheritedValues.elementStyle;
       this.nodeContext.lang = inheritedValues.lang;
@@ -942,6 +1124,13 @@ export class ViewFactory
         floatSide = null;
         clearSide = null;
       }
+      let footnoteDisplay: Css.Val | null = null;
+      let usesOutsideFootnoteMarker = false;
+      const isFootnoteBodyInFootnoteArea =
+        this.isFootnote &&
+        (!this.nodeContext?.parent ||
+          this.nodeContext.pluginProps["nestedFootnoteDetached"]);
+
       let floating =
         floatSide instanceof Css.SpaceList ||
         floatSide === Css.ident.left ||
@@ -961,13 +1150,25 @@ export class ViewFactory
         // Don't want to set it in view DOM CSS.
         delete computedStyle["float"];
         if (floatSide === Css.ident.footnote) {
-          if (this.isFootnote) {
-            // No footnotes inside footnotes. this is most likely the root
-            // of the footnote body being rendered in footnote area. Treat
-            // as block.
+          footnoteDisplay = computedStyle["footnote-display"];
+          usesOutsideFootnoteMarker = !!computedStyle["--viv-marker-content"];
+          if (isFootnoteBodyInFootnoteArea) {
+            // Root of the footnote body being rendered in footnote area.
+            // Nested footnote inside a footnote area: render as a detached block
+            // entry, with call marker handled separately. (Issue #1352)
             floating = false;
-            computedStyle["display"] = Css.ident.block;
+            const footnoteDisplayName = footnoteDisplay?.toString();
+            display = usesOutsideFootnoteMarker
+              ? Css.getName("list-item")
+              : footnoteDisplayName === "inline"
+                ? Css.ident.inline
+                : Css.ident.block;
+            computedStyle["display"] = display;
           } else {
+            // Footnote body in main flow (not yet in footnote area):
+            // render inline (only the call marker is visible), but keep
+            // the blockified display variable so nodeContext.inline stays
+            // false — layout needs this to collect the float properly.
             computedStyle["display"] = Css.ident.inline;
           }
         }
@@ -998,15 +1199,20 @@ export class ViewFactory
         ) {
           delete computedStyle["clear"];
           if (
-            computedStyle["display"] &&
-            computedStyle["display"] != Css.ident.inline
+            floating ||
+            (computedStyle["display"] &&
+              computedStyle["display"] != Css.ident.inline)
           ) {
             this.nodeContext.clearSide = clearSide.toString();
           }
         }
       }
       const isListItem =
-        Display.isListItem(display) && !!computedStyle["ua-list-item-count"];
+        Display.isListItem(display) &&
+        !!(
+          computedStyle["ua-list-item-count"] ||
+          computedStyle["--viv-marker-content"]
+        );
       const breakInside = computedStyle["break-inside"];
       if (
         floating ||
@@ -1121,10 +1327,6 @@ export class ViewFactory
           this.styler.cascade.currentPageType = pageType;
         }
       }
-      this.nodeContext.verticalAlign =
-        (computedStyle["vertical-align"] &&
-          computedStyle["vertical-align"].toString()) ||
-        "baseline";
       this.nodeContext.captionSide =
         (computedStyle["caption-side"] &&
           computedStyle["caption-side"].toString()) ||
@@ -1268,27 +1470,27 @@ export class ViewFactory
         custom = !!this.customRenderer;
       }
       if (isListItem) {
-        // We don't use browser's list item rendering, so we change
-        // `display: list-item` to `display: block` and
-        // `display: inline list-item` to `display: inline`.
-        display = Display.isInlineLevel(display)
-          ? Css.ident.inline
-          : Css.ident.block;
-        computedStyle["display"] = display;
+        // Keep display: list-item so the browser's native ::marker is used.
         if (firstTime) {
           tag = "li";
+          if (computedStyle["--viv-marker-content"]) {
+            // We control marker content via --viv-marker-content CSS custom
+            // property, so suppress the browser's default marker.
+            computedStyle["list-style-type"] = Css.ident.none;
+            computedStyle["list-style-image"] = Css.ident.none;
+          }
         } else {
+          // Subsequent fragments: no marker
+          display = Display.isInlineLevel(display)
+            ? Css.ident.inline
+            : Css.ident.block;
+          computedStyle["display"] = display;
           tag = "div";
         }
       } else if (tag == "body" || tag == "li") {
         tag = "div";
       } else if (tag == "q") {
         tag = "span";
-      } else if (tag == "a") {
-        const hp = computedStyle["hyperlink-processing"];
-        if (hp && hp.toString() != "normal") {
-          tag = "span";
-        }
       }
       if (computedStyle["behavior"]) {
         const behavior = computedStyle["behavior"].toString();
@@ -1328,6 +1530,27 @@ export class ViewFactory
           return;
         } else {
           result = this.createElement(ns, tag);
+        }
+
+        if (
+          !isRoot &&
+          isMultiColumn &&
+          computedStyle["column-fill"] === Css.ident.auto
+        ) {
+          const blockSize = this.nodeContext.vertical
+            ? computedStyle["width"]
+            : computedStyle["height"];
+          if (
+            !blockSize ||
+            blockSize === Css.ident.auto ||
+            Css.isDefaultingValue(blockSize)
+          ) {
+            // To make `column-fill: auto` with auto block size work on non-root multi-column,
+            // we change it to `balance` here, and after layout, we change it back.
+            // (Issue #1720, #1758)
+            result.setAttribute("data-viv-saved-column-fill", "auto");
+            computedStyle["column-fill"] = Css.ident.balance;
+          }
         }
 
         if (tag != originalTag) {
@@ -1588,11 +1811,22 @@ export class ViewFactory
           }
         }
         delete computedStyle["content"];
-        const listStyleImage = computedStyle["list-style-image"];
-        if (listStyleImage && listStyleImage instanceof Css.URL) {
-          const listStyleURL = (listStyleImage as Css.URL).url;
-          fetchers.push(Net.loadElement(new Image(), listStyleURL));
+
+        // Preload marker images referenced via --viv-marker-content so that
+        // pagination waits for them, avoiding late reflow.
+        const markerContent = computedStyle["--viv-marker-content"];
+        if (markerContent) {
+          const markerValues =
+            markerContent instanceof Css.SpaceList
+              ? markerContent.values
+              : [markerContent];
+          for (const v of markerValues) {
+            if (v instanceof Css.URL && v.url) {
+              fetchers.push(Net.loadElement(new Image(), v.url));
+            }
+          }
         }
+
         this.preprocessElementStyle(computedStyle);
         this.applyComputedStyles(result, computedStyle);
 
@@ -1646,25 +1880,11 @@ export class ViewFactory
           }
         }
         if (isListItem) {
-          result.setAttribute(
-            "value",
-            computedStyle["ua-list-item-count"].stringValue(),
-          );
-        }
-        if (result.classList.contains("_viv-marker-outside-content")) {
-          // Adjust marker position for outside markers
-          if (Display.isListItem(this.nodeContext.parent?.parent?.display)) {
-            const style = this.viewport.window.getComputedStyle(
-              this.nodeContext.parent.parent.viewNode as Element,
+          if (computedStyle["ua-list-item-count"]) {
+            result.setAttribute(
+              "value",
+              computedStyle["ua-list-item-count"].stringValue(),
             );
-            const markerOffset =
-              parseFloat(style.borderInlineStartWidth) +
-              parseFloat(style.paddingInlineStart) +
-              parseFloat(style.textIndent);
-            if (markerOffset) {
-              (result as HTMLElement).style.insetInlineEnd =
-                `${markerOffset}px`;
-            }
           }
         }
 
@@ -2136,13 +2356,17 @@ export class ViewFactory
           node?.nodeType === 1 &&
           PseudoElement.getPseudoName(node as Element) === name;
         const p = this.nodeContext.parent;
-        const parent = p
+        let parent = p
           ? isPseudo(this.viewNode, "after") &&
             isPseudo(p.viewNode, "first-letter") &&
             p.viewNode?.hasChildNodes()
             ? (p.parent.viewNode as Element) // Fix for issue #1175
             : (p.viewNode as Element)
           : this.viewRoot;
+        if (this.nodeContext.pluginProps["nestedFootnoteDetached"]) {
+          // Nested footnote, attach to the root (Issue #1352)
+          parent = this.viewRoot;
+        }
         if (parent) {
           if (
             this.nodeContext.inline &&
@@ -2202,8 +2426,10 @@ export class ViewFactory
     let contentShadowType: Vtree.ShadowType;
     const contentShadow = shadow.subShadow || shadow.parentShadow;
     if (shadow.subShadow) {
-      contentNode = shadow.root;
-      contentShadowType = shadow.type;
+      // If there is a nested shadow, insert that nested shadow's content
+      // at this <shadow:content> slot.
+      contentNode = shadow.subShadow.root;
+      contentShadowType = shadow.subShadow.type;
       if (contentShadowType == Vtree.ShadowType.ROOTLESS) {
         contentNode = contentNode.firstChild;
       }
@@ -2228,7 +2454,7 @@ export class ViewFactory
       r.shadowContext = contentShadow;
       r.shadowType = contentShadowType;
       r.shadowSibling = pos;
-      return r;
+      return this.processShadowContent(r);
     }
     pos.boxOffset = boxOffset;
     return pos;
@@ -2306,20 +2532,51 @@ export class ViewFactory
     }
   }
 
-  isTransclusion(
-    element: Element,
-    elementStyle: CssCascade.ElementStyle,
-    transclusionType: string | null,
-  ) {
-    const proc = CssCascade.getProp(elementStyle, "hyperlink-processing");
-    if (!proc) {
-      return false;
+  /**
+   * Find a footnote-call element immediately before the given view node.
+   */
+  private findImmediateFootnoteCallSibling(
+    footnoteNodeContext: Vtree.NodeContext,
+  ): Element | null {
+    const ownerOffset = this.xmldoc.getElementOffset(
+      footnoteNodeContext.sourceNode as Element,
+    );
+    const viewNode = footnoteNodeContext.viewNode;
+    if (!viewNode) {
+      return null;
     }
-    const prop = proc.evaluate(this.context, "hyperlink-processing");
-    if (!prop) {
-      return false;
+    let prev: Node | null = viewNode.previousSibling;
+    while (prev) {
+      if (prev.nodeType === Node.TEXT_NODE) {
+        if (prev.textContent.trim().length === 0) {
+          prev = prev.previousSibling;
+          continue;
+        }
+        return null;
+      }
+      if (prev.nodeType === Node.ELEMENT_NODE) {
+        const prevElem = prev as Element;
+        return PseudoElement.getPseudoName(prevElem) === "footnote-call" &&
+          prevElem.getAttribute(ViewFactory.FOOTNOTE_CALL_OWNER_ATTR) ===
+            ownerOffset.toString()
+          ? prevElem
+          : null;
+      }
+      return null;
     }
-    return prop.toString() == transclusionType;
+    return null;
+  }
+
+  /**
+   * True for semantic footnotes that already provide a noteref call in source
+   * (EPUB or DPUB-ARIA pattern), so an extra ::footnote-call must not be inserted.
+   */
+  private isSemanticFootnoteElement(footnoteNodeContext: Vtree.NodeContext) {
+    const sourceNode = footnoteNodeContext.sourceNode;
+    return (
+      sourceNode instanceof Element &&
+      SemanticFootnote.isSemanticFootnoteElement(sourceNode)
+    );
   }
 
   /**
@@ -2340,6 +2597,13 @@ export class ViewFactory
       "span",
     );
     PseudoElement.setPseudoName(footnoteCallSourceNode, "footnote-call");
+    const footnoteOffset = this.xmldoc.getElementOffset(
+      footnoteNodeContext.sourceNode as Element,
+    );
+    footnoteCallSourceNode.setAttribute(
+      ViewFactory.FOOTNOTE_CALL_OWNER_ATTR,
+      footnoteOffset.toString(),
+    );
 
     // Create NodeContext for footnote-call with the same parent as footnote
     const footnoteCallContext = new Vtree.NodeContext(
@@ -2430,16 +2694,29 @@ export class ViewFactory
         }
 
         // Issue #868: Insert footnote-call before footnote element
-        // Only insert if footnote-call hasn't been processed yet for this footnote
-        // Skip for template-based footnotes (where styler.getStyle returns undefined)
-        // as they define their own call content in HTML, not via ::footnote-call
+        // Only insert if footnote-call hasn't been processed yet for this footnote.
+        // Skip semantic EPUB/DPUB footnotes because the call already exists in
+        // source HTML as a noteref link (no extra ::footnote-call is needed).
+        // Also skip pseudo-elements (shadowContext exists) because they are not in the
+        // source document tree (PR #1607 follow-up fix).
         if (
           nodeContext.floatSide === "footnote" &&
-          !this.isFootnote &&
+          !(this.isFootnote && !nodeContext.parent) &&
           !nodeContext.after &&
           !nodeContext.pluginProps["footnoteCallProcessed"] &&
-          this.styler.getStyle(nodeContext.sourceNode as Element, false)
+          !nodeContext.shadowContext &&
+          !this.isSemanticFootnoteElement(nodeContext)
         ) {
+          const existingFootnoteCall =
+            this.findImmediateFootnoteCallSibling(nodeContext);
+          if (existingFootnoteCall?.parentNode) {
+            existingFootnoteCall.parentNode.removeChild(existingFootnoteCall);
+          }
+          if (this.isFootnote && nodeContext.parent) {
+            // Detach nested footnote content into footnote area while keeping
+            // the call marker in the parent footnote text. (Issue #1352)
+            nodeContext.pluginProps["nestedFootnoteDetached"] = 1;
+          }
           // Mark as processed to avoid infinite loop when returning via shadowSibling
           nodeContext.pluginProps["footnoteCallProcessed"] = 1;
           // Return footnote-call first, footnote will be processed via shadowSibling
@@ -2578,6 +2855,19 @@ export class ViewFactory
           propName,
           value.toString(),
         );
+        // Also propagate to the layout box so that page float areas laid out
+        // there (e.g. during stash re-layout before the root element is
+        // processed on the new page) inherit the correct values. (Issue #1752)
+        // Exclude writing-mode and direction: these affect page box positioning
+        // inside the layout box (e.g. vertical-rl right-aligns children) and
+        // are already set on the page box when needed.
+        if (propName !== "writing-mode" && propName !== "direction") {
+          Base.setCSSProperty(
+            this.viewport.layoutBox,
+            propName,
+            value.toString(),
+          );
+        }
       } else {
         Base.setCSSProperty(target, propName, value.toString());
       }
@@ -2858,10 +3148,10 @@ export class ViewFactory
     vertical: boolean,
     rtl: boolean,
     target: Element,
-  ): boolean {
+  ): Task.Result<boolean> {
     const computedStyle: { [key: string]: Css.Val } = {};
+    const fetchers: TaskUtil.Fetcher<string>[] = [];
 
-    // Get footnote area style from cascadedPageStyle if available
     let footnoteStyle = this.footnoteStyle;
     if (this.cascadedPageStyle) {
       const footnoteAreaMap = CssCascade.getStyleMap(
@@ -2869,101 +3159,88 @@ export class ViewFactory
         CssPage.footnoteAreaKey,
       );
       if (footnoteAreaMap && footnoteAreaMap["area"]) {
-        const cascadedFootnoteArea = footnoteAreaMap["area"];
-        // Create a merged style, manually copying properties to avoid issues with nested structures
-        footnoteStyle = {} as CssCascade.ElementStyle;
-
-        // First copy global footnote style (excluding _pseudos)
-        for (const prop in this.footnoteStyle) {
-          if (this.footnoteStyle.hasOwnProperty(prop) && prop !== "_pseudos") {
-            footnoteStyle[prop] = this.footnoteStyle[prop];
-          }
-        }
-
-        // Copy global _pseudos separately to avoid reference sharing
-        const globalPseudos = CssCascade.getStyleMap(
-          this.footnoteStyle,
-          "_pseudos",
-        );
-        if (globalPseudos) {
-          const targetPseudos = CssCascade.getMutableStyleMap(
-            footnoteStyle,
-            "_pseudos",
-          );
-          for (const pseudoName in globalPseudos) {
-            if (globalPseudos.hasOwnProperty(pseudoName)) {
-              const globalPseudo = globalPseudos[pseudoName];
-              const targetPseudo = {} as CssCascade.ElementStyle;
-              targetPseudos[pseudoName] = targetPseudo;
-              for (const prop in globalPseudo) {
-                if (globalPseudo.hasOwnProperty(prop)) {
-                  targetPseudo[prop] = globalPseudo[prop];
-                }
-              }
-            }
-          }
-        }
-
-        // Then merge cascaded page-specific footnote properties
-        // Merge regular properties (excluding _pseudos)
-        for (const prop in cascadedFootnoteArea) {
-          if (
-            cascadedFootnoteArea.hasOwnProperty(prop) &&
-            prop !== "_pseudos"
-          ) {
-            const val = cascadedFootnoteArea[prop];
-            if (val instanceof CssCascade.CascadeValue) {
-              CssCascade.setPropCascadeValue(footnoteStyle, prop, val);
-            }
-          }
-        }
-
-        // Merge cascaded _pseudos
-        const cascadedPseudos = CssCascade.getStyleMap(
-          cascadedFootnoteArea,
-          "_pseudos",
-        );
-        if (cascadedPseudos) {
-          const targetPseudos = CssCascade.getMutableStyleMap(
-            footnoteStyle,
-            "_pseudos",
-          );
-          for (const pseudoName in cascadedPseudos) {
-            if (cascadedPseudos.hasOwnProperty(pseudoName)) {
-              let targetPseudo = targetPseudos[pseudoName];
-              if (!targetPseudo) {
-                targetPseudo = {} as CssCascade.ElementStyle;
-                targetPseudos[pseudoName] = targetPseudo;
-              }
-              const sourcePseudo = cascadedPseudos[pseudoName];
-              for (const prop in sourcePseudo) {
-                if (sourcePseudo.hasOwnProperty(prop)) {
-                  const val = sourcePseudo[prop];
-                  if (val instanceof CssCascade.CascadeValue) {
-                    CssCascade.setPropCascadeValue(targetPseudo, prop, val);
-                  }
-                }
-              }
-            }
-          }
-        }
+        // Styles defined in @page @footnote override any top-level @footnote.
+        footnoteStyle = footnoteAreaMap["area"];
       }
     }
 
     const pseudoMap = CssCascade.getStyleMap(footnoteStyle, "_pseudos");
     vertical = this.computeStyle(vertical, rtl, footnoteStyle, computedStyle);
     if (pseudoMap && pseudoMap["before"]) {
+      const pseudoStyle = pseudoMap["before"];
+      const hasSpecifiedDisplay = !!CssCascade.getProp(pseudoStyle, "display");
       const childComputedStyle: { [key: string]: Css.Val } = {};
       const span = this.createElement(Base.NS.XHTML, "span");
       PseudoElement.setPseudoName(span, "before");
       target.appendChild(span);
-      this.computeStyle(vertical, rtl, pseudoMap["before"], childComputedStyle);
+      this.computeStyle(vertical, rtl, pseudoStyle, childComputedStyle);
+      if (!hasSpecifiedDisplay) {
+        childComputedStyle["display"] = Css.ident.block;
+      }
+
+      const contentCascadeValue = CssCascade.getProp(pseudoStyle, "content");
+      if (contentCascadeValue) {
+        const contentElement =
+          this.sourceNode?.nodeType === 1
+            ? (this.sourceNode as Element)
+            : this.xmldoc.root;
+        childComputedStyle["content"] = contentCascadeValue
+          .filterValue(
+            new CssCascade.ContentPropVisitor(
+              this.styler.cascade,
+              contentElement,
+              this.styler.cascade.counterResolver,
+              "before",
+            ),
+          )
+          .evaluate(this.context, "content");
+      }
+
+      const content = childComputedStyle["content"];
+      if (Vtree.nonTrivialContent(content)) {
+        content.visit(
+          new Vtree.ContentPropertyHandler(
+            span,
+            this.context,
+            content,
+            this.exprContentListener,
+          ),
+        );
+
+        const images = span.querySelectorAll("img[src]");
+        for (let i = 0; i < images.length; i++) {
+          const image = images[i] as HTMLImageElement;
+          const src = image.getAttribute("src");
+          if (!src) {
+            continue;
+          }
+          const fetcher = Net.loadElement(image, src);
+          fetchers.push(fetcher);
+          this.page.fetchers.push(fetcher);
+        }
+
+        const rootSrc = span.getAttribute("src");
+        if (rootSrc) {
+          let image = span.querySelector("img") as HTMLImageElement | null;
+          if (!image) {
+            image = this.document.createElement("img");
+            image.setAttribute("src", rootSrc);
+            span.appendChild(image);
+          }
+          const fetcher = Net.loadElement(image, rootSrc);
+          fetchers.push(fetcher);
+          this.page.fetchers.push(fetcher);
+        }
+      }
       delete childComputedStyle["content"];
       this.applyComputedStyles(span, childComputedStyle);
     }
     delete computedStyle["content"];
     this.applyComputedStyles(target, computedStyle);
-    return vertical;
+    if (fetchers.length) {
+      return TaskUtil.waitForFetchers(fetchers).thenReturn(vertical);
+    }
+    return Task.newResult(vertical);
   }
 
   /** @override */
@@ -3274,6 +3551,7 @@ export const propertiesNotPassedToDOM = {
   "flow-linger": true,
   "flow-options": true,
   "flow-priority": true,
+  "footnote-display": true,
   "footnote-policy": true,
   "margin-break": true,
   page: true,

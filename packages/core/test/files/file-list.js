@@ -51,6 +51,10 @@ module.exports = [
       { file: "selector_bug.html", title: "Selector bug" },
       { file: "outline.html", title: "Outline" },
       { file: "font-feature-settings.html", title: "Font feature settings" },
+      {
+        file: "font-variation-settings.html",
+        title: "font-variation-settings in @font-face",
+      },
       { file: "background-gradient.html", title: "Background gradient" },
       {
         file: "incorrect_layout_with_empty_partition.html",
@@ -72,12 +76,36 @@ module.exports = [
       },
       { file: "clear-bug-test.html", title: "Float clear bug" },
       { file: "float-text-offset-bug.html", title: "Float text offset bug" },
+      {
+        file: "float-clear.html",
+        title: "Float with clear (Issue #1803)",
+      },
+      {
+        file: "float-clear-vertical.html",
+        title: "Float with clear, vertical-rl (Issue #1803)",
+      },
+      {
+        file: "float-lh-rlh.html",
+        title: "Float with lh/rlh height (Issue #1494, #1738)",
+      },
       { file: "content-attr.html", title: "Content attr()" },
       { file: "relative_floats.html", title: "Floats with position: relative" },
       { file: "target-counter.html", title: "target-counter" },
       {
+        file: "cross-scope-counters.html",
+        title: "Cross-scope counters (Issue #1692)",
+      },
+      {
         file: "target-counter-and-margin-bug.html",
         title: "target-counter and margin bug",
+      },
+      {
+        file: "target-counter-named-pages-left-right.html",
+        title: "target-counter() named pages with :left/:right (Issue #1497)",
+      },
+      {
+        file: "target-counter-missing-page.html",
+        title: "target-counter() missing page (Issue #1498)",
       },
       { file: "target-text.html", title: "target-text() - Basic Tests" },
       {
@@ -91,6 +119,11 @@ module.exports = [
           "target-text-multiple/third.html",
         ],
         title: "target-text() - Cross-Document References",
+      },
+      {
+        file: "target-text-reflow-navigation/publication.json",
+        title:
+          "target-text() reflow across WebPub spine navigation (Issue #1856)",
       },
       {
         file: "target-text-vs-named-strings.html",
@@ -132,6 +165,10 @@ module.exports = [
         file: "content-in-page-margin-box.html",
         title: "Content in page margin box",
       },
+      {
+        file: "counters-function-in-page-margin-box.html",
+        title: "counters() in page margin boxes",
+      },
       { file: "flowchunk_overflow_bug.html", title: "Flowchunk overflow bug" },
       { file: "pages_counter.html", title: "pages counter" },
       {
@@ -163,6 +200,11 @@ module.exports = [
         title: "z-index on @page and page-margin boxes",
       },
       {
+        file: "z-index-at-page-bare-text.html",
+        title:
+          "z-index on @page and page-margin boxes (bare text after float, Issue #1786)",
+      },
+      {
         file: "inset-shorthand.html",
         title: "inset shorthand property",
       },
@@ -183,6 +225,8 @@ module.exports = [
         title: "initial-letter property",
       },
       { file: "nth-child-of.html", title: ":nth-child(An+B of S) selector" },
+      { file: "all-shorthand.html", title: "all shorthand property" },
+      { file: "env-doc-title.html", title: "env(doc-title) function" },
     ],
   },
   {
@@ -292,6 +336,10 @@ module.exports = [
         file: "text-spacing/ts-generated-content-vertical.html",
         title: "Text-spacing on generated content (vertical writing-mode)",
       },
+      {
+        file: "text-spacing/text-spacing-trim-start-code.html",
+        title: "text-spacing-trim after code element (Issue #1863)",
+      },
     ],
   },
   {
@@ -352,11 +400,25 @@ module.exports = [
         file: "named-pages/named-pages.html",
         title: "Named Pages",
       },
-      // Not yet supported:
-      // {
-      //   file: "named-pages/page-groups.html",
-      //   title: "Page Groups",
-      // },
+      {
+        file: "named-pages/page-groups.html",
+        title: "Page Groups",
+      },
+      {
+        file: "named-pages/page-groups-spread-breaks.html",
+        title: "Page Groups with spread breaks",
+      },
+      {
+        file: [
+          "named-pages/page-groups-concat-blank-first.html",
+          "named-pages/page-groups-concat-blank-second.html",
+        ],
+        title: "Page Groups across concatenated docs with boundary blank page",
+      },
+      {
+        file: "named-pages/page-child-element.html",
+        title: "Named Page on Child Element with Running Element (Issue #1833)",
+      },
     ],
   },
   {
@@ -406,6 +468,10 @@ module.exports = [
         title: "Combine forced break values",
       },
       {
+        file: "page_breaks/combine_breaks_2.html",
+        title: "Combine break value regressions (Issue #1842)",
+      },
+      {
         file: "page_breaks/break_left_right.html",
         title: "break-before/after: left/right",
       },
@@ -429,6 +495,19 @@ module.exports = [
         file: "page_breaks/class_C_break_point.html",
         title: "Class C break point",
       },
+      {
+        file: "page_breaks/block-start-out-of-flow-break.html",
+        title: "Block-start out-of-flow break (Issue #1775)",
+      },
+      {
+        file: "page_breaks/block-start-out-of-flow-break-vertical.html",
+        title:
+          "Block-start out-of-flow break (vertical writing-mode) (Issue #1775)",
+      },
+      {
+        file: "page_breaks/page-breaking-with-container-padding-border.html",
+        title: "Page breaking with container padding/border (Issue #1846)",
+      },
     ],
   },
   {
@@ -441,23 +520,53 @@ module.exports = [
     ],
   },
   {
-    category: "Column",
+    category: "Multi-column",
     files: [
       {
-        file: "column/column-fill_balance.html",
+        file: "multi-column/column-fill_balance.html",
         title: "column-fill: balance",
       },
       {
-        file: "column/column-fill_balance_vertical.html",
+        file: "multi-column/column-fill_balance_vertical.html",
         title: "column-fill: balance (vertical writing-mode)",
       },
       {
-        file: "column/column-fill_balance-all.html",
+        file: "multi-column/column-fill_balance-all.html",
         title: "column-fill: balance-all",
       },
       {
-        file: "column/column-fill_balance-all_vertical.html",
+        file: "multi-column/column-fill_balance-all_vertical.html",
         title: "column-fill: balance-all (vertical writing-mode)",
+      },
+      {
+        file: "multi-column/mixed-multicol.html",
+        title: "Mixed multi-column layout test",
+      },
+      {
+        file: "multi-column/mixed-multicol-with-floats.html",
+        title: "Mixed multi-column layout with floats",
+      },
+      {
+        file: "multi-column/multicol-in-page-float.html",
+        title: "Multi-column in page float (Issue #1751)",
+      },
+      {
+        file: "multi-column/multicol-column-fill-auto.html",
+        title:
+          "column-fill: auto in non-root multicol (Issue #1720, #1758, #1773)",
+      },
+      {
+        file: "multi-column/column-rule-page-floats-footnotes.html",
+        title: "Column rule with page floats and footnotes (Issue #1493)",
+      },
+      {
+        file: "multi-column/column-rule-page-floats-footnotes-vertical.html",
+        title:
+          "Column rule with page floats and footnotes (vertical writing-mode) (Issue #1493, #1764)",
+      },
+      {
+        file: "multi-column/multicol-page-block-end-float.html",
+        title: "Multi-column text and page block-end float (Issue #1826)",
       },
     ],
   },
@@ -497,6 +606,14 @@ module.exports = [
         title: "Table repeating header/footer (vertical writing-mode)",
       },
       { file: "table/break_after_table.html", title: "Break after table" },
+      {
+        file: "table/table-break.html",
+        title: "Table page break (auto + forced) (Issue #1492, #1849)",
+      },
+      {
+        file: "table/nrmc-table-break-column.html",
+        title: "Table column break in non-root multicol (Issue #1854)",
+      },
     ],
   },
   {
@@ -663,6 +780,21 @@ module.exports = [
         file: "page_floats/target-counter-and-page-floats.html",
         title: "Target-counter and Page Floats",
       },
+      {
+        file: "page_floats/page-float-in-page-float.html",
+        title: "Page float in page float (Issue #1675)",
+      },
+      {
+        file: "page_floats/page-float-spacing.html",
+        title:
+          "Page float padding, border, and margin-bottom cases (Issue #1752)",
+      },
+      {
+        file: "page_floats/page-float-spacing.html",
+        title:
+          "Page float padding, border, and margin-bottom cases with fontSize=18 (Issue #1752)",
+        options: "&fontSize=18",
+      },
     ],
   },
   {
@@ -671,6 +803,10 @@ module.exports = [
       {
         file: "footnotes/footnotes_widows_bug.html",
         title: "Footnotes widows bug",
+      },
+      {
+        file: "footnotes/footnote-in-footnote.html",
+        title: "Footnote in footnote (Issue #1352)",
       },
       {
         file: "footnotes/footnotes_and_page_floats.html",
@@ -686,8 +822,99 @@ module.exports = [
         title: "Footnote area with @footnote",
       },
       {
-        file: "footnote-text-spacing.html",
+        file: "footnotes/footnote-area-page-overrides-top-level.html",
+        title: "@page @footnote overrides top-level @footnote (Issue #1723)",
+      },
+      {
+        file: "footnotes/footnote-before-content.html",
+        title: "@footnote ::before content (Issue #1723)",
+      },
+      {
+        file: "footnotes/footnote-text-spacing.html",
         title: "Footnote text-spacing (Issue #868)",
+      },
+      {
+        file: "footnotes/footnote-page-counter-reset.html",
+        title: "Footnote and page counter-reset (Issue #421)",
+      },
+      {
+        file: "footnotes/footnote-call-marker-counter-style.html",
+        title: "Footnote call/marker counter styles",
+      },
+      {
+        file: "footnotes/footnote-display.html",
+        title: "footnote-display (Issue #1825)",
+      },
+      {
+        file: "footnotes/footnotes-in-table.html",
+        title: "Footnotes in table (Issue #438)",
+      },
+      {
+        file: "footnotes/footnotes-in-table-2.html",
+        title: "Footnotes in table 2 (Issue #1657)",
+      },
+      {
+        file: "footnotes/footnotes-in-table-rowspan-colspan.html",
+        title: "Footnotes in table with rowspan/colspan (Issue #1667)",
+      },
+      {
+        file: "footnotes/footnotes-in-multicol.html",
+        title: "Footnotes in multi-column (Issue #1460)",
+      },
+      {
+        file: "footnotes/footnotes-in-multicol-vertical.html",
+        title:
+          "Footnotes in multi-column (vertical writing-mode) (Issue #1460)",
+      },
+      {
+        file: "footnotes/footnote-in-page-float.html",
+        title: "Footnotes in page float (Issue #1675)",
+      },
+      {
+        file: "footnotes/footnotes-anywhere.html",
+        title: "Footnotes anywhere (Issue #1669)",
+      },
+      {
+        file: "footnotes/dpub-footnotes-target-counter.html",
+        title: "DPUB footnotes with target-counter() (Issue #1700)",
+      },
+      {
+        file: "footnotes/dpub-footnote-duplicate-reference.html",
+        title:
+          "DPUB noteref duplicate reference should not duplicate footnote body (Issue #1767)",
+      },
+      {
+        file: "footnotes/dpub-footnote-inherit.html",
+        title:
+          "DPUB footnote should inherit from source parent, not noteref (Issue #1770)",
+      },
+      {
+        file: "footnotes/epub-footnotes-static-number.html",
+        title: "EPUB footnotes (static numbering)",
+      },
+      {
+        file: "footnotes/epub-footnote-duplicate-reference.xhtml",
+        title:
+          "EPUB noteref duplicate reference should not duplicate footnote body (Issue #1767)",
+      },
+      {
+        file: "footnotes/default-footnote-pseudo-styles.html",
+        title: "Default ::footnote-call/::footnote-marker styles (Issue #1701)",
+      },
+      {
+        file: "footnotes/footnote-marker-outside-style.html",
+        title:
+          "::footnote-marker with list-style-position: outside (Issue #1702)",
+      },
+      {
+        file: "footnotes/footnote-in-list-item.html",
+        title:
+          "Footnote in list item should not inherit list marker (Issue #1838)",
+      },
+      {
+        file: "footnotes/footnote-marker-position-inherit-initial.html",
+        title:
+          "::footnote-marker list-style-position inherit/initial (Issue #1838)",
       },
     ],
   },
@@ -793,7 +1020,7 @@ module.exports = [
     ],
   },
   {
-    category: "Counter style, ::marker, and list-style",
+    category: "Counter style and list-style",
     files: [
       {
         file: "counter-style/test.html",
@@ -808,8 +1035,21 @@ module.exports = [
         title: "::marker pseudo-element",
       },
       {
+        file: "counter-style/marker-block-child.html",
+        title: "::marker with block child in list item (Issue #1831)",
+      },
+      {
+        file: "counter-style/marker-empty-li.html",
+        title: "::marker on empty list items",
+      },
+      {
         file: "counter-style/list-style-position.html",
         title: "list-style-position",
+      },
+      {
+        file: "counter-style/list-style-position-super.html",
+        title:
+          "Outside marker alignment with superscript content (Issue #1780)",
       },
       {
         file: "counter-style/list-style-type-bullet.html",
@@ -818,6 +1058,10 @@ module.exports = [
       {
         file: "counter-style/list-style-type-bullet-vertical.html",
         title: "list-style-type bullet marker (vertical writing-mode)",
+      },
+      {
+        file: "counter-style/list-item-text-spacing.html",
+        title: "List-item with text-spacing (Issue #1763)",
       },
     ],
   },

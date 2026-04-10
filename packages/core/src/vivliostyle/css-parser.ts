@@ -1431,7 +1431,8 @@ export class Parser {
     for (; count > 0; --count) {
       token = tokenizer.token();
 
-      // For relational pseudo-class `:has()` support
+      // For relational pseudo-class `:has()` support: capture raw selector text
+      // so matching can be delegated to querySelector later.
       if (parsingFunctionParam && selectorStartPosition === null) {
         // token.position may be token's start position + 1
         selectorStartPosition = token.position - 1;
@@ -1689,12 +1690,14 @@ export class Parser {
                   continue;
                 case "lang":
                 case "href-epub-type":
+                case "href-role-type":
                   token = tokenizer.token();
                   if (token.type === TokenType.IDENT) {
                     params = [token.text];
                     tokenizer.consume();
                     if (
-                      text === "href-epub-type" &&
+                      (text === "href-epub-type" ||
+                        text === "href-role-type") &&
                       tokenizer.token().type === TokenType.COMMA
                     ) {
                       tokenizer.consume();
@@ -2976,6 +2979,9 @@ export function evaluateExprToCSS(
   if (val instanceof Exprs.Native && val.str === "viv-leader") {
     return new Css.Expr(val);
   }
+  if (propName === "content" && val instanceof Exprs.Native) {
+    return new Css.Expr(val);
+  }
   const result = val.evaluate(context);
   switch (typeof result) {
     case "number":
@@ -2989,6 +2995,9 @@ export function evaluateExprToCSS(
     case "string":
       if (!result) {
         return Css.empty;
+      }
+      if (propName === "content") {
+        return new Css.Str(result as string);
       }
 
       // TODO: where baseURL should come from???

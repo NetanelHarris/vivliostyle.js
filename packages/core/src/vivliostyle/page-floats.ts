@@ -112,6 +112,21 @@ export class PageFloat implements PageFloats.PageFloat {
   order: number | null = null;
   id: PageFloatID | null = null;
 
+  /**
+   * Set to true when this float is created inside a page float area.
+   * Used to bypass the normal anchor check in isAllowedOnContext because
+   * the anchor node is lost after page-level invalidation. (Issue #1675)
+   */
+  insidePageFloatArea: boolean = false;
+
+  /**
+   * Reference to the parent page float that contains this float.
+   * Set when this float is created inside a page float area, allowing
+   * isAllowedOnContext to check whether the parent is still present.
+   * (Issue #1675)
+   */
+  parentPageFloat: PageFloat | null = null;
+
   constructor(
     public readonly nodePosition: Vtree.NodePosition,
     public readonly floatReference: FloatReference,
@@ -136,7 +151,21 @@ export class PageFloat implements PageFloats.PageFloat {
   }
 
   isAllowedOnContext(pageFloatLayoutContext: PageFloatLayoutContext): boolean {
-    return pageFloatLayoutContext.isAnchorAlreadyAppeared(this.getId());
+    if (pageFloatLayoutContext.isAnchorAlreadyAppeared(this.getId())) {
+      return true;
+    }
+    // When the float was created inside a page float area, its anchor node
+    // is lost after page-level invalidation (the page float area context is
+    // detached during re-layout). Check whether the parent page float still
+    // has a fragment on this context: if the parent was removed (e.g. by
+    // checkAndForbidNotAllowedFloat), this float should also be removed
+    // to avoid orphaned fragments on the page. (Issue #1675)
+    if (this.insidePageFloatArea && this.parentPageFloat) {
+      return !!pageFloatLayoutContext.findPageFloatFragment(
+        this.parentPageFloat,
+      );
+    }
+    return false;
   }
 
   isAllowedToPrecede(other: PageFloat): boolean {
@@ -174,10 +203,45 @@ export class PageFloatStore {
   findPageFloatByNodePosition(
     nodePosition: Vtree.NodePosition,
   ): PageFloat | null {
+    // First try exact match using isSameNodePosition
     const index = this.floats.findIndex((f) =>
       VtreeImpl.isSameNodePosition(f.nodePosition, nodePosition),
     );
-    return index >= 0 ? this.floats[index] : null;
+    if (index >= 0) {
+      return this.floats[index];
+    }
+    // For table cells (PseudoColumn), the steps array may differ in length
+    // but the sourceNode (steps[0].node) should be the same.
+    // This ensures footnotes inside table cells are identified correctly
+    // even when processed within PseudoColumn context.
+    // Only apply this fallback when steps lengths differ, and compare step
+    // nodes up to the shorter length to avoid false matches with EPUB
+    // footnotes that share the same shadow template element as steps[0].node.
+    const nSteps = nodePosition?.steps;
+    if (nSteps?.length) {
+      const fallbackIndex = this.floats.findIndex((f) => {
+        const fSteps = f.nodePosition.steps;
+        if (
+          !fSteps?.length ||
+          fSteps.length === nSteps.length ||
+          f.nodePosition.offsetInNode !== nodePosition.offsetInNode ||
+          f.nodePosition.after !== nodePosition.after
+        ) {
+          return false;
+        }
+        const minLen = Math.min(fSteps.length, nSteps.length);
+        for (let i = 0; i < minLen; i++) {
+          if (fSteps[i].node !== nSteps[i].node) {
+            return false;
+          }
+        }
+        return true;
+      });
+      if (fallbackIndex >= 0) {
+        return this.floats[fallbackIndex];
+      }
+    }
+    return null;
   }
 
   findPageFloatById(id: PageFloatID) {
@@ -294,6 +358,15 @@ export class PageFloatLayoutContext
   private layoutConstraints: LayoutType.LayoutConstraint[] = [];
   private locked: boolean = false;
 
+  /**
+   * Reference to the outer column's context for page float area contexts.
+   * Used only for getParent() navigation to propagate nested page floats
+   * and footnotes to region/page level. Unlike `parent`, this does NOT
+   * affect children registration, isInvalidated() propagation, or
+   * getFloatFragmentExclusions(). (Issue #1675)
+   */
+  private outerContext: PageFloatLayoutContext | null = null;
+
   constructor(
     public readonly parent: PageFloatLayoutContext,
     private readonly floatReference: FloatReference | null,
@@ -307,8 +380,13 @@ export class PageFloatLayoutContext
       parent.children.push(this);
     }
     this.writingMode =
-      writingMode || (parent && parent.writingMode) || Css.ident.horizontal_tb;
-    this.direction = direction || (parent && parent.direction) || Css.ident.ltr;
+      (!Css.isDefaultingValue(writingMode) && writingMode) ||
+      (parent && parent.writingMode) ||
+      Css.ident.horizontal_tb;
+    this.direction =
+      (!Css.isDefaultingValue(direction) && direction) ||
+      (parent && parent.direction) ||
+      Css.ident.ltr;
     this.floatStore = parent ? parent.floatStore : new PageFloatStore();
     const previousSibling = this.getPreviousSibling();
     this.floatsDeferredFromPrevious = previousSibling
@@ -316,11 +394,37 @@ export class PageFloatLayoutContext
       : [];
   }
 
+  /**
+   * Returns the effective parent context for hierarchy traversal.
+   * For normal contexts, returns `parent`. For page float area contexts
+   * (where `parent` is null), falls back to `outerContext`. (Issue #1675)
+   */
+  get effectiveParent(): PageFloatLayoutContext | null {
+    return this.parent ?? this.outerContext;
+  }
+
   private getParent(floatReference: FloatReference): PageFloatLayoutContext {
-    if (!this.parent) {
-      throw new Error(`No PageFloatLayoutContext for ${floatReference}`);
+    if (this.parent) {
+      return this.parent;
     }
-    return this.parent;
+    // Fall back to the outer context for page float area contexts.
+    // This allows nested page floats and footnotes inside page float areas
+    // to propagate to the region/page level without the side effects of
+    // a full parent connection. (Issue #1675)
+    if (this.outerContext) {
+      return this.outerContext;
+    }
+    throw new Error(`No PageFloatLayoutContext for ${floatReference}`);
+  }
+
+  /**
+   * Set the outer context for a page float area context.
+   * This shares the float store so that page floats/footnotes created inside
+   * a page float area are visible at all levels. (Issue #1675)
+   */
+  setOuterContext(outerContext: PageFloatLayoutContext) {
+    this.outerContext = outerContext;
+    this.floatStore = outerContext.floatStore;
   }
 
   private getPreviousSiblingOf(
@@ -968,6 +1072,7 @@ export class PageFloatLayoutContext
     layoutContext: Vtree.LayoutContext,
     clientLayout: Vtree.ClientLayout,
     condition?: (p1: PageFloatFragment, p2: PageFloatLayoutContext) => boolean,
+    includeParent: boolean = true,
   ): number {
     Asserts.assert(this.container);
     const logicalSide = this.toLogical(side);
@@ -981,13 +1086,14 @@ export class PageFloatLayoutContext
       clientLayout,
       condition,
     );
-    if (this.parent && this.parent.container) {
+    if (includeParent && this.parent && this.parent.container) {
       const parentLimit = this.parent.getLimitValue(
         physicalSide,
         physicalSide2,
         layoutContext,
         clientLayout,
         condition,
+        includeParent,
       );
       switch (physicalSide) {
         case "top":
@@ -1072,6 +1178,24 @@ export class PageFloatLayoutContext
       floatMinWrapBlockStart: 0,
       floatMinWrapBlockEnd: 0,
     };
+    // During column balancing, the container's JS block-size (width for
+    // vertical, height for horizontal) may be reduced while the CSS element
+    // dimensions stay at the original value. Use the original CSS dimensions
+    // for float limit calculations to keep consistency with float fragment
+    // positions, which are based on the real DOM layout. (Issue #1764)
+    // Only apply when CSS > JS (balancing reduced JS), not when CSS < JS
+    // (footnotes reduced CSS via adjustColumnBlockSizeForBlockEndFloats).
+    if (this.container.vertical) {
+      const cssWidth = parseFloat(this.container.element?.style?.width);
+      if (isFinite(cssWidth) && cssWidth > this.container.width) {
+        limits.right += cssWidth - this.container.width;
+      }
+    } else {
+      const cssHeight = parseFloat(this.container.element?.style?.height);
+      if (isFinite(cssHeight) && cssHeight > this.container.height) {
+        limits.bottom += cssHeight - this.container.height;
+      }
+    }
 
     function resolveLengthPercentage(numeric, viewNode, containerLength) {
       if (numeric.unit === "%") {
@@ -1106,6 +1230,12 @@ export class PageFloatLayoutContext
         }
         const area = f.area;
         const floatMinWrapBlock = f.continuations[0].float.floatMinWrapBlock;
+        const outerBlockEnd = area.vertical
+          ? area.left + area.getInsetLeft() + area.width + area.getInsetRight()
+          : area.top + area.getInsetTop() + area.height + area.getInsetBottom();
+        const outerInlineEnd = area.vertical
+          ? area.top + area.getInsetTop() + area.height + area.getInsetBottom()
+          : area.left + area.getInsetLeft() + area.width + area.getInsetRight();
         let top = l.top;
         let left = l.left;
         let bottom = l.bottom;
@@ -1115,9 +1245,9 @@ export class PageFloatLayoutContext
         switch (logicalFloatSide) {
           case "inline-start":
             if (area.vertical) {
-              top = Math.max(top, area.top + area.height);
+              top = Math.max(top, outerInlineEnd);
             } else {
-              left = Math.max(left, area.left + area.width);
+              left = Math.max(left, outerInlineEnd);
             }
             break;
           case "block-start":
@@ -1131,14 +1261,14 @@ export class PageFloatLayoutContext
               }
               right = Math.min(right, area.left);
             } else {
-              if (floatMinWrapBlock && area.top + area.height > top) {
+              if (floatMinWrapBlock && outerBlockEnd > top) {
                 floatMinWrapBlockStart = resolveLengthPercentage(
                   floatMinWrapBlock,
                   (area as any).rootViewNodes[0],
                   paddingRect.y2 - paddingRect.y1,
                 ) as number;
               }
-              top = Math.max(top, area.top + area.height);
+              top = Math.max(top, outerBlockEnd);
             }
             break;
           case "inline-end":
@@ -1150,14 +1280,14 @@ export class PageFloatLayoutContext
             break;
           case "block-end":
             if (area.vertical) {
-              if (floatMinWrapBlock && area.left + area.width > left) {
+              if (floatMinWrapBlock && outerBlockEnd > left) {
                 floatMinWrapBlockEnd = resolveLengthPercentage(
                   floatMinWrapBlock,
                   (area as any).rootViewNodes[0],
                   paddingRect.x2 - paddingRect.x1,
                 ) as number;
               }
-              left = Math.max(left, area.left + area.width);
+              left = Math.max(left, outerBlockEnd);
             } else {
               if (floatMinWrapBlock && area.top < bottom) {
                 floatMinWrapBlockEnd = resolveLengthPercentage(
@@ -1352,7 +1482,15 @@ export class PageFloatLayoutContext
         return null;
       }
     } else {
-      blockSize = area.computedBlockSize;
+      // computedBlockSize already includes the border-box size (padding +
+      // border) of the root float elements and any positive trailing margin.
+      // However, negative trailing margin is not reflected, so only add the
+      // negative part of margin-after here. (Issue #1752)
+      const marginAfter = area.getContentBlockMarginAfter();
+      blockSize = Math.max(
+        0,
+        area.computedBlockSize + Math.min(0, marginAfter),
+      );
       outerBlockSize = blockSize + area.getInsetBefore() + area.getInsetAfter();
       const availableBlockSize = (blockEnd - blockStart) * area.getBoxDir();
       if (logicalFloatSides[0] === "snap-block") {
@@ -1503,21 +1641,90 @@ export class PageFloatLayoutContext
     );
   }
 
-  getBlockStartEdgeOfBlockEndFloats(): number {
-    const isVertical = this.getContainer().vertical;
-    return this.floatFragments
-      .filter((fragment) => fragment.floatSide === "block-end")
-      .reduce(
-        (edge, fragment) => {
-          const rect = fragment.getOuterRect();
-          if (isVertical) {
-            return Math.max(edge, rect.x2);
-          } else {
-            return Math.min(edge, rect.y1);
-          }
-        },
-        isVertical ? 0 : Infinity,
-      );
+  getBlockEndEdgeOfBlockStartFloats(inlinePos?: number): number {
+    let context: PageFloatLayoutContext = this;
+    let container: Vtree.Container | null = null;
+    while (context && !container) {
+      container = context.container;
+      context = context.parent;
+    }
+    const isVertical = !!container?.vertical;
+    let edge = NaN;
+    this.floatFragments
+      .filter((fragment) => fragment.floatSide.includes("block-start"))
+      .filter((fragment) => {
+        if (!isFinite(inlinePos)) {
+          return true;
+        }
+        const rect = fragment.getOuterRect();
+        return isVertical
+          ? rect.y1 <= inlinePos && inlinePos <= rect.y2
+          : rect.x1 <= inlinePos && inlinePos <= rect.x2;
+      })
+      .forEach((fragment) => {
+        const rect = fragment.getOuterRect();
+        const fragmentEdge = isVertical ? rect.x1 : rect.y2;
+        edge = isFinite(edge)
+          ? isVertical
+            ? Math.min(edge, fragmentEdge)
+            : Math.max(edge, fragmentEdge)
+          : fragmentEdge;
+      });
+    if (this.parent) {
+      const parentEdge =
+        this.parent.getBlockEndEdgeOfBlockStartFloats(inlinePos);
+      if (isFinite(parentEdge)) {
+        edge = isFinite(edge)
+          ? isVertical
+            ? Math.min(edge, parentEdge)
+            : Math.max(edge, parentEdge)
+          : parentEdge;
+      }
+    }
+    return edge;
+  }
+
+  getBlockStartEdgeOfBlockEndFloats(inlinePos?: number): number {
+    let context: PageFloatLayoutContext = this;
+    let container: Vtree.Container | null = null;
+    while (context && !container) {
+      container = context.container;
+      context = context.parent;
+    }
+    const isVertical = !!container?.vertical;
+    let edge = NaN;
+    this.floatFragments
+      .filter((fragment) => fragment.floatSide.includes("block-end"))
+      .filter((fragment) => {
+        if (!isFinite(inlinePos)) {
+          return true;
+        }
+        const rect = fragment.getOuterRect();
+        return isVertical
+          ? rect.y1 <= inlinePos && inlinePos <= rect.y2
+          : rect.x1 <= inlinePos && inlinePos <= rect.x2;
+      })
+      .forEach((fragment) => {
+        const rect = fragment.getOuterRect();
+        const fragmentEdge = isVertical ? rect.x2 : rect.y1;
+        edge = isFinite(edge)
+          ? isVertical
+            ? Math.max(edge, fragmentEdge)
+            : Math.min(edge, fragmentEdge)
+          : fragmentEdge;
+      });
+    if (this.parent) {
+      const parentEdge =
+        this.parent.getBlockStartEdgeOfBlockEndFloats(inlinePos);
+      if (isFinite(parentEdge)) {
+        edge = isFinite(edge)
+          ? isVertical
+            ? Math.max(edge, parentEdge)
+            : Math.min(edge, parentEdge)
+          : parentEdge;
+      }
+    }
+    return edge;
   }
 
   getPageFloatClearEdge(clear: string, column: LayoutType.Column): number {
@@ -1878,6 +2085,7 @@ export class NormalPageFloatLayoutStrategy implements PageFloatLayoutStrategy {
     Asserts.assert(nodeContext.floatSide);
     const floatSide: string = nodeContext.floatSide;
     const nodePosition = nodeContext.toNodePosition();
+    const insidePageFloat = !!pageFloatLayoutContext.generatingNodePosition;
     return column
       .resolveFloatReferenceFromColumnSpan(
         floatReference,
@@ -1895,6 +2103,14 @@ export class NormalPageFloatLayoutStrategy implements PageFloatLayoutStrategy {
           pageFloatLayoutContext.flowName,
           nodeContext.floatMinWrapBlock,
         );
+        float.insidePageFloatArea = insidePageFloat;
+        if (insidePageFloat) {
+          const parentNodePos = pageFloatLayoutContext.generatingNodePosition;
+          if (parentNodePos) {
+            float.parentPageFloat =
+              pageFloatLayoutContext.findPageFloatByNodePosition(parentNodePos);
+          }
+        }
         pageFloatLayoutContext.addPageFloat(float);
         return Task.newResult(float);
       });
@@ -1932,7 +2148,9 @@ export class NormalPageFloatLayoutStrategy implements PageFloatLayoutStrategy {
     floatArea: LayoutType.PageFloatArea,
     floatContainer: Vtree.Container,
     column: LayoutType.Column,
-  ) {}
+  ): Task.Result<void> {
+    return Task.newResult(undefined);
+  }
 
   /** @override */
   forbid(float: PageFloat, pageFloatLayoutContext: PageFloatLayoutContext) {}

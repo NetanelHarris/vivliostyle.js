@@ -10,7 +10,8 @@
     "dev": "bun build-dev --watch=forever",
     "format": "prettier --write \"{*.{js,md,json},{src,types,test,resources}/**/*.{ts,js}}\"",
     "lint": "eslint src --fix -f codeframe",
-    "test": "bun --cwd test install && bun --cwd test test"
+    "test": "bun --cwd test install && bun --cwd test test",
+    "test-local": "bun --cwd test install && bun --cwd test test-local"
   },
   "dependencies": {
     "fast-diff": "^1.2.0"

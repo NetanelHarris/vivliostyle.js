@@ -114,6 +114,23 @@ export class SlipMap {
   }
 }
 
+type CounterSnapshot = {
+  offset: number;
+  counters: CssCascade.CounterValues;
+  changes: string[];
+  changeTypes?: { [key: string]: "reset" | "set" | "increment" };
+};
+
+function cloneCounterValues(
+  counters: CssCascade.CounterValues,
+): CssCascade.CounterValues {
+  const result = {} as CssCascade.CounterValues;
+  Object.keys(counters).forEach((name) => {
+    result[name] = Array.from(counters[name]);
+  });
+  return result;
+}
+
 export interface FlowListener {
   encounteredFlowChunk(flowChunk: Vtree.FlowChunk, flow: Vtree.Flow): void;
 }
@@ -454,6 +471,7 @@ export class Styler implements AbstractStyler {
   last: Node;
   rootStyle = {} as CssCascade.ElementStyle;
   styleMap: { [key: string]: CssCascade.ElementStyle } = {};
+  counterSnapshots: CounterSnapshot[] = [];
   flows = {} as { [key: string]: Vtree.Flow };
   flowChunks = [] as Vtree.FlowChunk[];
   flowListener: FlowListener = null;
@@ -500,6 +518,12 @@ export class Styler implements AbstractStyler {
     this.offsetMap.addStuckRange(rootOffset);
     const style = this.getAttrStyle(this.root);
     this.cascade.pushElement(this, this.root, style, rootOffset);
+    this.recordCounterSnapshot(
+      rootOffset,
+      this.cascade.counters,
+      this.cascade.lastCounterChanges,
+      this.cascade.lastCounterChangeTypes,
+    );
     this.postprocessTopStyle(style, false);
     switch (this.root.namespaceURI) {
       case Base.NS.XHTML:
@@ -703,6 +727,47 @@ export class Styler implements AbstractStyler {
     return {} as CssCascade.ElementStyle;
   }
 
+  recordCounterSnapshot(
+    offset: number,
+    counters: CssCascade.CounterValues,
+    changes: string[] = [],
+    changeTypes?: { [key: string]: "reset" | "set" | "increment" },
+  ): void {
+    const snapshot = {
+      offset,
+      counters: cloneCounterValues(counters),
+      changes: Array.from(changes || []),
+      changeTypes: changeTypes ? { ...changeTypes } : undefined,
+    } as CounterSnapshot;
+    const lastSnapshot =
+      this.counterSnapshots[this.counterSnapshots.length - 1];
+    // If multiple updates occur at the same offset (e.g., relayout),
+    // keep the latest snapshot so counters reflect the most recent state.
+    if (lastSnapshot && lastSnapshot.offset === offset) {
+      this.counterSnapshots[this.counterSnapshots.length - 1] = snapshot;
+      return;
+    }
+    this.counterSnapshots.push(snapshot);
+  }
+
+  getCounterSnapshotAtOffset(offset: number): CounterSnapshot | null {
+    if (!this.counterSnapshots.length) {
+      return null;
+    }
+    const index = Base.binarySearch(
+      this.counterSnapshots.length,
+      (i) => offset < this.counterSnapshots[i].offset,
+    );
+    const targetIndex = index === 0 ? 0 : index - 1;
+    return this.counterSnapshots[targetIndex] || null;
+  }
+
+  getLastCounterSnapshot(): CounterSnapshot | null {
+    return this.counterSnapshots.length
+      ? this.counterSnapshots[this.counterSnapshots.length - 1]
+      : null;
+  }
+
   /**
    * @return currently reached offset
    */
@@ -722,6 +787,16 @@ export class Styler implements AbstractStyler {
     if (offset < rootOffset) {
       const rootStyle = this.getStyle(this.root, false);
       Asserts.assert(rootStyle);
+      if (!this.cascade.firstPageType) {
+        const rootPageCV = rootStyle["page"] as CssCascade.CascadeValue;
+        const rootPageType =
+          rootPageCV &&
+          !Css.isDefaultingValue(rootPageCV.value) &&
+          rootPageCV.value.toString();
+        if (rootPageType && rootPageType.toLowerCase() !== "auto") {
+          this.cascade.firstPageType = rootPageType;
+        }
+      }
       const flowName = CssCascade.getProp(rootStyle, "flow-into");
       const flowNameStr = flowName
         ? flowName.evaluate(context, "flow-into").toString()
@@ -991,6 +1066,14 @@ export class Styler implements AbstractStyler {
         const style = this.getAttrStyle(elem);
         this.primaryStack.push(this.primary);
         this.cascade.pushElement(this, elem, style, this.lastOffset);
+        if (this.cascade.lastCounterChanges.length > 0) {
+          this.recordCounterSnapshot(
+            this.lastOffset,
+            this.cascade.counters,
+            this.cascade.lastCounterChanges,
+            this.cascade.lastCounterChangeTypes,
+          );
+        }
         const id =
           elem.getAttribute("id") || elem.getAttributeNS(Base.NS.XML, "id");
         if (id && id === this.idToReach) {
@@ -1036,14 +1119,18 @@ export class Styler implements AbstractStyler {
         }
         const blockStartOffset = this.boxStack.nearestBlockStartOffset(box);
 
-        if (blockStartOffset === 0) {
+        if (blockStartOffset === 0 || elem === this.xmldoc.body) {
           // Named page type at first page
           const pageCV = style["page"] as CssCascade.CascadeValue;
           const pageType =
             pageCV &&
             !Css.isDefaultingValue(pageCV.value) &&
             pageCV.value.toString();
-          if (pageType && pageType.toLowerCase() !== "auto") {
+          if (
+            !this.cascade.firstPageType &&
+            pageType &&
+            pageType.toLowerCase() !== "auto"
+          ) {
             this.cascade.firstPageType = pageType;
           }
         }

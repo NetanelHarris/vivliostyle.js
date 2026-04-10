@@ -1506,6 +1506,24 @@ export class PageBoxInstance<P extends PageBox = PageBox<any>> {
         const containerSize = this.vertical
           ? container.height
           : container.width;
+        const renderedPhysicalStartOffset = parseFloat(
+          this.vertical
+            ? (column?.element.style.left ?? "")
+            : (column?.element.style.top ?? ""),
+        );
+        const basePaddingRect = container.getPaddingRect();
+        const columnLike = column as Vtree.Container & {
+          pageFloatLayoutContext?: {
+            parent?: {
+              getBlockEndEdgeOfBlockStartFloats?: (
+                inlinePos?: number,
+              ) => number;
+              getBlockStartEdgeOfBlockEndFloats?: (
+                inlinePos?: number,
+              ) => number;
+            };
+          };
+        };
         const border = this.vertical ? "border-top" : "border-left";
         for (let i = 1; i < columnCount; i++) {
           const pos = this.vertical
@@ -1517,18 +1535,71 @@ export class PageBoxInstance<P extends PageBox = PageBox<any>> {
               columnGap / 2 +
               container.paddingLeft -
               ruleWidth / 2;
-          const size = this.vertical
-            ? container.width + container.paddingLeft + container.paddingRight
-            : container.height + container.paddingTop + container.paddingBottom;
+          // pos is the rule box start; overlap filtering should use
+          // the rendered rule stroke center.
+          const physicalInlinePos = this.vertical
+            ? basePaddingRect.y1 + pos + ruleWidth / 2
+            : basePaddingRect.x1 + pos + ruleWidth / 2;
+          const blockStartFloatEndEdge =
+            columnLike.pageFloatLayoutContext?.parent?.getBlockEndEdgeOfBlockStartFloats?.(
+              physicalInlinePos,
+            );
+          const blockEndFloatStartEdge =
+            columnLike.pageFloatLayoutContext?.parent?.getBlockStartEdgeOfBlockEndFloats?.(
+              physicalInlinePos,
+            );
+          const blockStartLimit = isFinite(blockStartFloatEndEdge)
+            ? this.vertical
+              ? blockStartFloatEndEdge - basePaddingRect.x1
+              : blockStartFloatEndEdge - basePaddingRect.y1
+            : NaN;
+          const blockEndLimit = isFinite(blockEndFloatStartEdge)
+            ? this.vertical
+              ? blockEndFloatStartEdge - basePaddingRect.x1
+              : blockEndFloatStartEdge - basePaddingRect.y1
+            : NaN;
+          const renderedBlockSize = parseFloat(
+            this.vertical
+              ? (column?.element.style.width ?? "")
+              : (column?.element.style.height ?? ""),
+          );
+          const size =
+            renderedBlockSize > 0
+              ? renderedBlockSize
+              : this.vertical
+                ? column.width
+                : column.height;
+          const renderedStart = Math.max(
+            renderedPhysicalStartOffset > 0 ? renderedPhysicalStartOffset : 0,
+            0,
+          );
+          const renderedEnd = renderedStart + size;
+          const adjustedStart = Math.max(
+            renderedStart,
+            isFinite(this.vertical ? blockEndLimit : blockStartLimit)
+              ? Math.max(0, this.vertical ? blockEndLimit : blockStartLimit)
+              : 0,
+          );
+          const adjustedEnd = Math.min(
+            renderedEnd,
+            isFinite(this.vertical ? blockStartLimit : blockEndLimit)
+              ? Math.max(0, this.vertical ? blockStartLimit : blockEndLimit)
+              : renderedEnd,
+          );
+          const adjustedSize = Math.max(0, adjustedEnd - adjustedStart);
           const rule = container.element.ownerDocument.createElement("div");
           Base.setCSSProperty(rule, "position", "absolute");
-          Base.setCSSProperty(rule, this.vertical ? "left" : "top", "0px");
+          Base.setCSSProperty(
+            rule,
+            this.vertical ? "left" : "top",
+            `${adjustedStart}px`,
+          );
           Base.setCSSProperty(rule, this.vertical ? "top" : "left", `${pos}px`);
           Base.setCSSProperty(rule, this.vertical ? "height" : "width", "0px");
           Base.setCSSProperty(
             rule,
             this.vertical ? "width" : "height",
-            `${size}px`,
+            `${adjustedSize}px`,
           );
           Base.setCSSProperty(
             rule,
