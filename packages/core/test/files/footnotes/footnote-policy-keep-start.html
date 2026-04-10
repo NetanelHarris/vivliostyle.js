@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>footnote-policy: keep-start</title>
+    <style>
+      @page {
+        size: 300px 280px;
+        margin: 10px;
+      }
+      :root {
+        font-size: 14px;
+        font-family: Arial, sans-serif;
+        line-height: 18px;
+        counter-reset: footnote;
+      }
+      body,
+      p {
+        margin: 0 0 4px 0;
+      }
+      @-adapt-footnote-area {
+        border-top: 1px solid black;
+        margin-block-start: 4px;
+        padding-block-start: 2px;
+      }
+      .footnote {
+        float: footnote;
+        counter-increment: footnote;
+        font-size: 11px;
+        line-height: 15px;
+      }
+      .footnote::footnote-call {
+        content: counter(footnote);
+        vertical-align: super;
+        font-size: 9px;
+        color: blue;
+      }
+      .footnote::footnote-marker {
+        content: counter(footnote) ". ";
+        color: blue;
+      }
+      /* keep-start: the START of the footnote must be on the same page
+         as the reference, but the continuation may flow to the next page */
+      .keep-start {
+        footnote-policy: keep-start;
+        /* footnote-policy: line; */
+      }
+    </style>
+  </head>
+  <body>
+    <p>
+      Page 1 line 1<br />
+      Page 1 line 2<br />
+      Page 1 line 3<br />
+      Page 1 line 4<br />
+      Page 1 line 5<br />
+      Page 1 line 6<br />
+      Page 1 line 7<br />
+      Page 1 line 8<br />
+      Reference<sup class="footnote keep-start">This is a long footnote with
+        keep-start policy. The beginning of the footnote must appear on the same
+        page as the footnote reference call, but the rest of the footnote text
+        may continue flowing onto the following pages without forcing a page
+        break before the reference line.
+      </sup> is here on line 8<br />
+      Page 1 line 9<br />
+      Page 1 line 10
+    </p>
+    <p>
+      Page 2 content line 1<br />
+      Page 2 content line 2<br />
+      Page 2 content line 3
+    </p>
+    <p style="margin-top: 20px; color: gray; font-size: 11px;">
+      Expected: The footnote starts on page 1 (with the reference) and
+      continues on page 2. Unlike <code>footnote-policy: line</code>, no page
+      break is forced before line 8.
+    </p>
+  </body>
+</html>

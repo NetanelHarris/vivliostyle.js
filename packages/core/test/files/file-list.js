@@ -257,6 +257,10 @@ module.exports = [
         file: "first-word-test.html",
         title: "Torah Books - styling first word",
       },
+      {
+        file: "grep-styles-test.html",
+        title: "GREP Styles - Regex-based text styling",
+      },
     ],
   },
   {
@@ -835,6 +839,10 @@ module.exports = [
         title: "Footnote with pseudoelement",
       },
       { file: "footnotes/footnote-policy.html", title: "footnote-policy" },
+      {
+        file: "footnotes/footnote-policy-keep-start.html",
+        title: "footnote-policy: keep-start",
+      },
       {
         file: "footnotes/footnote-area-at-footnote.html",
         title: "Footnote area with @footnote",
