@@ -33,6 +33,14 @@ bun dev:react       # Watch mode for core + react (excludes viewer)
 
 **IMPORTANT**: When working on code changes during development, assume that the development server (`bun dev` or package-specific `bun dev`) is already running and will automatically rebuild changes. Do NOT try to start the development server or run build commands manually unless explicitly requested. The watch mode handles all rebuilds automatically.
 
+### Development Server URLs
+
+- Test cases index: `http://localhost:3000/core/test/files/`
+- Viewer with local test file: `http://localhost:3000/viewer/lib/vivliostyle-viewer-dev.html#src=../../core/test/files/<test>.html`
+- Viewer with any URL: `http://localhost:3000/viewer/lib/vivliostyle-viewer-dev.html#src=<URL>`
+
+To add a new test case: add an HTML file to `packages/core/test/files/` and register it in `packages/core/test/files/file-list.js`.
+
 ### Package-Specific Commands
 
 ```bash
@@ -68,9 +76,12 @@ bun test            # Run tests for all packages (parallel)
 
 # Core tests specifically (Karma + Jasmine)
 cd packages/core/test
-bun test            # Run Karma locally
+bun test            # Run Karma locally (headless browser)
+bun test-local      # Run Karma with manual browser (open http://localhost:9876 to debug)
 bun test-ci         # Run Karma in CI mode
 ```
+
+Test specs live in `packages/core/test/spec/vivliostyle/*-spec.js`.
 
 ### Linting and Formatting
 
@@ -199,6 +210,13 @@ From CONTRIBUTING.md:
 ## Commit Guidelines
 
 Follow Conventional Commits specification. All notable changes documented in CHANGELOG.md via conventional commits (used by `lerna version --conventional-commits`).
+
+## Common Pitfalls
+
+- Tests do not transpile TypeScript — always build before testing (`bun build`)
+- Core changes must be rebuilt before viewer/react packages see them
+- Root `tsconfig.json` is intentionally empty — each package has its own
+- After `bun add`, run `lerna link` to recreate workspace symlinks
 
 ## Node Version
 
