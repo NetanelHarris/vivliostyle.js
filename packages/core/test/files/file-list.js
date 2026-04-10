@@ -166,6 +166,10 @@ module.exports = [
         title: "Content in page margin box",
       },
       {
+        file: "page-margin-box-images.html",
+        title: "Page margin box images (Issue #1867)",
+      },
+      {
         file: "counters-function-in-page-margin-box.html",
         title: "counters() in page margin boxes",
       },
