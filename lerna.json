@@ -4,5 +4,6 @@
   ],
   "npmClient": "npm",
   "version": "2.40.0",
-  "includeMergedTags": true
+  "includeMergedTags": true,
+  "changelogPreset": "./scripts/changelog-preset.js"
 }

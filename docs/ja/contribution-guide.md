@@ -81,7 +81,7 @@ yarn build
 
 #### 1. プレリリース
 
-`yarn version:prerelease` を実行してプレリリース版を作成します。そして、 `yarn version:prerelease` でプレリリース番号を上げます。
+`yarn version:prerelease` を実行してプレリリース版を作成します。そして、 `yarn version:bump` でプレリリース番号を上げます。
 
 #### 2. 安定版(Stable)リリース
 
