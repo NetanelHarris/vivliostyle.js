@@ -3295,6 +3295,20 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
   }
 
   /**
+   * Check if the nodeContext has a position:fixed ancestor in the view tree.
+   * Used to detect text inside running elements (position:running() rendered
+   * as position:fixed). (Issue #1833)
+   */
+  hasFixedPositionAncestor(nodeContext: Vtree.NodeContext): boolean {
+    for (let nc = nodeContext; nc; nc = nc.parent) {
+      if (LayoutHelper.isFixedPositioned(nc.viewNode)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Skips positions until either the start of unbreakable block or inline
    * content. Also sets breakBefore on the result combining break-before and
    * break-after properties from all elements that meet at the edge.
@@ -3437,6 +3451,16 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
         return false;
       }
       for (let nc = lastAfterNodeContext; nc?.parent; nc = nc.parent) {
+        // Skip levels inside out-of-flow ancestors (e.g. position:running()
+        // rendered as position:fixed). Child nodes of out-of-flow elements
+        // should not prevent break suppression at the page start.
+        // (Issue #1833)
+        if (
+          nc.parent.viewNode &&
+          LayoutHelper.isOutOfFlow(nc.parent.viewNode)
+        ) {
+          continue;
+        }
         let node = nc.after ? nc.viewNode : nc.viewNode?.previousSibling;
         while (
           node &&
@@ -3484,17 +3508,12 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
                 // Ignorable text content, skip
                 break;
               }
-              // Text inside out-of-flow elements (e.g. position:running()
-              // rendered as position:fixed) should not be treated as
-              // in-flow content for break detection. (Issue #1833)
-              let hasOutOfFlowAncestor = false;
-              for (let nc = nodeContext; nc; nc = nc.parent) {
-                if (nc.viewNode && LayoutHelper.isOutOfFlow(nc.viewNode)) {
-                  hasOutOfFlowAncestor = true;
-                  break;
-                }
-              }
-              if (hasOutOfFlowAncestor) {
+              // Text inside running elements (position:running() rendered
+              // as position:fixed) should not be treated as in-flow content
+              // for break detection. Only check position:fixed ancestors,
+              // not position:absolute, to avoid breaking abspos layout.
+              // (Issue #1833, #1869, #1870)
+              if (this.hasFixedPositionAncestor(nodeContext)) {
                 break;
               }
               if (!nodeContext.after) {
@@ -3704,12 +3723,13 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
 
               // Trailing edge
               if (onStartEdges) {
-                // Out-of-flow elements (e.g. position:running() rendered as
+                // Running elements (position:running() rendered as
                 // position:fixed) should not end the leading edge sequence.
                 // Their trailing edges must not reset leadingEdge, otherwise
-                // the next in-flow element's forced break would be incorrectly
-                // treated as a mid-page break. (Issue #1833)
-                if (LayoutHelper.isCssOutOfFlow(nodeContext.viewNode)) {
+                // the next in-flow element's forced break would be treated
+                // as a mid-page break. Only skip position:fixed, not
+                // position:absolute. (Issue #1833, #1869, #1870)
+                if (LayoutHelper.isFixedPositioned(nodeContext.viewNode)) {
                   break;
                 }
                 // finished going through all starting edges of the box.

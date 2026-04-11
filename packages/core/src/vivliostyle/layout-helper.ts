@@ -653,6 +653,16 @@ export function isCssOutOfFlow(node: Node): boolean {
   );
 }
 
+/**
+ * Check if element has position:fixed. Used to identify running elements
+ * (position:running() rendered as position:fixed) without matching
+ * position:absolute elements. (Issue #1833, #1869, #1870)
+ */
+export function isFixedPositioned(node: Node): boolean {
+  if (!(node?.nodeType === 1)) return false;
+  return (node as HTMLElement).style?.position === "fixed";
+}
+
 export function isSpecialNodeContext(nodeContext: Vtree.NodeContext): boolean {
   const viewNode = nodeContext?.viewNode;
   return viewNode?.nodeType === 1 && isSpecial(viewNode as Element);
