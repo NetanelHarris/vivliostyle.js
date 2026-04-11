@@ -22,9 +22,10 @@
     "test:core": "yarn workspace @vivliostyle/core test",
     "test:core-local": "yarn workspace @vivliostyle/core test-local",
     "version:amend": "git tag --points-at HEAD | xargs -I{} git tag --delete {} && git reset --hard HEAD^",
-    "version:bump": "yarn test:layout-regression:triage:check && lerna version --conventional-commits --preid pre",
-    "version:graduate": "yarn test:layout-regression:triage:check && lerna version --conventional-commits --conventional-graduate",
-    "version:prerelease": "yarn test:layout-regression:triage:check && lerna version --conventional-commits --conventional-prerelease --preid pre"
+    "version:bump": "yarn test:layout-regression:triage:check && lerna version --conventional-commits --preid pre --no-push",
+    "version:push": "TAGS=$(git tag --points-at HEAD) && git add CHANGELOG.md packages/*/CHANGELOG.md && git commit --amend --no-edit && for t in $TAGS; do git tag -f $t; done && git push && git push --tags",
+    "version:graduate": "yarn test:layout-regression:triage:check && lerna version --conventional-commits --conventional-graduate --no-push",
+    "version:prerelease": "yarn test:layout-regression:triage:check && lerna version --conventional-commits --conventional-prerelease --preid pre --no-push"
   },
   "devDependencies": {
     "archiver": "^7.0.1",
