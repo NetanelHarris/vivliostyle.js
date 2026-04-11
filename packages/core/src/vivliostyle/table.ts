@@ -139,7 +139,9 @@ export class TableCaptionView {
   ) {}
 }
 
-export class BetweenTableRowBreakPosition extends BreakPosition.EdgeBreakPosition {
+export class BetweenTableRowBreakPosition
+  extends BreakPosition.EdgeBreakPosition
+{
   private formattingContext: TableFormattingContext;
 
   acceptableCellBreakPositions: Layout.BreakPositionAndNodeContext[] = null;
@@ -253,7 +255,9 @@ export class BetweenTableRowBreakPosition extends BreakPosition.EdgeBreakPositio
   }
 }
 
-export class InsideTableRowBreakPosition extends BreakPosition.AbstractBreakPosition {
+export class InsideTableRowBreakPosition
+  extends BreakPosition.AbstractBreakPosition
+{
   acceptableCellBreakPositions: Layout.BreakPositionAndNodeContext[] = null;
 
   constructor(
@@ -2307,7 +2311,9 @@ export class EntireTableLayoutConstraint
   }
 }
 
-export class LayoutFragmentedTable extends RepetitiveElementImpl.LayoutFragmentedBlock {
+export class LayoutFragmentedTable
+  extends RepetitiveElementImpl.LayoutFragmentedBlock
+{
   constructor(
     formattingContext: TableFormattingContext,
     public readonly processor: TableLayoutProcessor,

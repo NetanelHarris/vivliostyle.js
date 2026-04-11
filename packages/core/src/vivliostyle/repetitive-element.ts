@@ -696,7 +696,9 @@ export class RepetitiveElementsOwnerLayoutConstraint
   }
 }
 
-export class RepetitiveElementsOwnerLayoutRetryer extends LayoutRetryers.AbstractLayoutRetryer {
+export class RepetitiveElementsOwnerLayoutRetryer
+  extends LayoutRetryers.AbstractLayoutRetryer
+{
   constructor(
     public readonly formattingContext: RepetitiveElement.RepetitiveElementsOwnerFormattingContext,
     private readonly processor: RepetitiveElementsOwnerLayoutProcessor,
