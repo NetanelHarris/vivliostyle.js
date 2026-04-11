@@ -848,17 +848,20 @@ export class StyleInstance
    * element's CSS `page` property. This is needed because `currentPageType`
    * is only set during layout (in ViewFactory), but the first page's type
    * must be known before layout begins for correct @page rule matching.
+   *
+   * Note: This must NOT set `currentPageType` as a side effect. Setting it
+   * early would cause intermediate wrapper elements (whose page type is
+   * null/auto) to get unwanted `breakBefore: "page"` during view tree
+   * construction, since their page type would differ from `currentPageType`.
+   * The `currentPageType` will be set naturally when the content element
+   * is processed during layout. (Issue #1869, #1870)
    */
   private resolveFirstPageType(): string | null {
     const firstElement = this.getFirstDocumentFlowElement();
     if (!firstElement) {
       return null;
     }
-    const pageType = this.getPageGroupPageType(firstElement);
-    if (pageType) {
-      this.styler.cascade.currentPageType = pageType;
-    }
-    return pageType;
+    return this.getPageGroupPageType(firstElement);
   }
 
   private shouldStartPageGroup(

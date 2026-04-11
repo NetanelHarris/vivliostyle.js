@@ -36,6 +36,15 @@ module.exports = [
       },
       { file: "absolute_positioning.html", title: "Absolute positioning" },
       {
+        file: "abspos-page-break-bug.html",
+        title:
+          "Absolute positioned box with page break - no duplication (Issue #1870)",
+      },
+      {
+        file: "abspos-page-break-test.html",
+        title: "Absolute positioned boxes not moved to next page (Issue #1869)",
+      },
+      {
         file: "relative_positioning_pagination.html",
         title: "Relative positioning pagination",
       },
