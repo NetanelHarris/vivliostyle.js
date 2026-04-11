@@ -82,7 +82,7 @@ yarn version:bump
 
 #### 3. Publish
 
-After running `yarn version:*` command above, just `git push` and CI will do the rest of publishing process.
+After running `yarn version:*` command above, you can edit `CHANGELOG.md` if needed, then run `yarn version:push`. This amends the release commit, updates the tag, and pushes to GitHub. CI will then publish to npm and create the GitHub Release.
 
 ## Consistent Naming Guideline
 

@@ -87,8 +87,9 @@ Use Chrome DevTools MCP to automatically verify rendering results:
 ## Release Process
 
 1. `yarn lint && yarn test && yarn build`
-2. Version: `yarn version:prerelease` / `yarn version:graduate` / `yarn version:bump` (auto-pushes to GitHub)
-3. CI publishes to npm
+2. Version: `yarn version:prerelease` / `yarn version:graduate` / `yarn version:bump` (creates local commit + tag, does NOT push)
+3. Optionally edit `CHANGELOG.md`
+4. `yarn version:push` (amends commit, retags, pushes — CI then publishes to npm and creates GitHub Release)
 
 ## Commit Message Guidelines
 

@@ -81,7 +81,7 @@ yarn build
 
 #### 1. プレリリース
 
-`yarn version:prerelease` を実行してプレリリース版を作成します。そして、 `yarn version:bump` でプレリリース番号を上げます。
+`yarn version:prerelease` を実行してプレリリース版を作成します。そして、 `yarn version:prerelease` でプレリリース番号を上げます。
 
 #### 2. 安定版(Stable)リリース
 
@@ -96,6 +96,10 @@ yarn version:graduate
 ```shell
 yarn version:bump
 ```
+
+#### 3. 公開
+
+`yarn version:*` コマンドを実行後、必要であれば `CHANGELOG.md` を編集し、その後 `yarn version:push` を実行します。これによりリリースコミットの修正（amend）とタグの更新、GitHubへのプッシュが行われ、CIがnpmへの公開とGitHub Releaseの作成を行います。
 
 ## 一貫した命名ガイドライン
 
