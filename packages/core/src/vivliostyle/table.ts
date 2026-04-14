@@ -2377,7 +2377,11 @@ export class TableRowLayoutConstraint
       (overflownNodeContext && !nodeContext) ||
       (nodeContext && nodeContext.overflow)
     ) {
-      return false;
+      return !RepetitiveElementImpl.isOverflowInsideRepetitiveElementsOwner(
+        nodeContext,
+        overflownNodeContext,
+        repetitiveElements,
+      );
     } else {
       return true;
     }

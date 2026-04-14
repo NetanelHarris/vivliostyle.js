@@ -610,6 +610,11 @@ module.exports = [
         file: "table/nrmc-table-break-column.html",
         title: "Table column break in non-root multicol (Issue #1854)",
       },
+      {
+        file: "table/table-header-repeat.html",
+        title:
+          "Table header repeat with complex multipage tables (Issue #1873)",
+      },
     ],
   },
   {
