@@ -1,17 +1,12 @@
-- id: "0171"
-  category: Table
+- category: Table
   title: "Table header repeat with complex multipage tables (Issue #1873)"
   file: table/table-header-repeat.html
-  type: difference
-  decision: ""  # regression / expected / skip
+  decision: expected  # regression / expected / skip
   notes: ""
-  approvedViewer: ""  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  approvedViewer: git-fix-issue1873  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
   actualLabel: canary
   actualUrl: >-
     https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table-header-repeat.html&zoom=1&spread=false
   baselineLabel: stable
   baselineUrl: >-
     https://vivliostyle.org/viewer/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/table/table-header-repeat.html&zoom=1&spread=false
-  diffPages:
-    - 2
-    - 3
