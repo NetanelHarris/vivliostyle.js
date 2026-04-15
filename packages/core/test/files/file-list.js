@@ -917,6 +917,10 @@ module.exports = [
         title:
           "::footnote-marker list-style-position inherit/initial (Issue #1838)",
       },
+      {
+        file: "footnotes/footnote-fragmentation.html",
+        title: "Footnote fragmentation across pages (Issue #1875)",
+      },
     ],
   },
   {

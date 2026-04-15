@@ -612,7 +612,10 @@ export class PageFloatLayoutContext
 
   hasContinuingFloatFragmentsInFlow(flowName: string): boolean {
     return this.hasFloatFragments(
-      (fragment) => fragment.continues && fragment.getFlowName() === flowName,
+      (fragment) =>
+        fragment.continues &&
+        fragment.getFlowName() === flowName &&
+        fragment.floatSide !== "block-end",
     );
   }
 
@@ -1396,26 +1399,32 @@ export class PageFloatLayoutContext
     );
     const blockOffset = area.vertical ? area.originX : area.originY;
     const inlineOffset = area.vertical ? area.originY : area.originX;
-    blockStart = area.vertical
-      ? Math.min(
-          blockStart,
-          area.left +
-            area.getInsetLeft() +
-            area.width +
-            area.getInsetRight() +
-            blockOffset,
-        )
-      : Math.max(blockStart, area.top + blockOffset);
-    blockEnd = area.vertical
-      ? Math.max(blockEnd, area.left + blockOffset)
-      : Math.min(
-          blockEnd,
-          area.top +
-            area.getInsetTop() +
-            area.height +
-            area.getInsetBottom() +
-            blockOffset,
-        );
+    // For footnotes in the init=false pass, skip clamping blockStart/blockEnd
+    // to the area's current CSS box. The init=true pass may have constrained
+    // the area to the anchor-to-page-bottom region for footnote fragmentation,
+    // but init=false must use the full page limits for correct positioning.
+    if (!(area.isFootnote && !init)) {
+      blockStart = area.vertical
+        ? Math.min(
+            blockStart,
+            area.left +
+              area.getInsetLeft() +
+              area.width +
+              area.getInsetRight() +
+              blockOffset,
+          )
+        : Math.max(blockStart, area.top + blockOffset);
+      blockEnd = area.vertical
+        ? Math.max(blockEnd, area.left + blockOffset)
+        : Math.min(
+            blockEnd,
+            area.top +
+              area.getInsetTop() +
+              area.height +
+              area.getInsetBottom() +
+              blockOffset,
+          );
+    }
 
     function limitBlockStartEndValueWithOpenRect(getRect, rect) {
       let openRect = getRect(area.bands, rect);
@@ -1472,6 +1481,23 @@ export class PageFloatLayoutContext
           )
         ) {
           return null;
+        }
+      }
+      // For footnotes with a valid anchor edge, constrain the available
+      // block space so the footnote starts no higher than the anchor
+      // position. This enables footnote fragmentation: content that
+      // doesn't fit below the anchor overflows and is deferred to the
+      // next page.
+      if (
+        area.isFootnote &&
+        anchorEdge !== null &&
+        isFinite(anchorEdge) &&
+        logicalFloatSides[0] === "block-end"
+      ) {
+        if (area.vertical) {
+          blockStart = Math.min(blockStart, anchorEdge);
+        } else {
+          blockStart = Math.max(blockStart, anchorEdge);
         }
       }
       outerBlockSize = (blockEnd - blockStart) * area.getBoxDir();
