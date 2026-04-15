@@ -42,6 +42,7 @@ import * as PseudoElement from "./pseudo-element";
 import * as Task from "./task";
 import * as Vgen from "./vgen";
 import * as VtreeImpl from "./vtree";
+import { Footnote } from "./footnotes";
 import {
   FragmentLayoutConstraintType,
   Layout,
@@ -1583,7 +1584,7 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
           floatSide,
           anchorEdge,
           true,
-          !floatLayoutContext.hasFloatFragments(),
+          area.isFootnote || !floatLayoutContext.hasFloatFragments(),
           condition,
         );
         if (fitWithinContainer) {
@@ -1717,6 +1718,17 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
           });
         })
         .then(() => {
+          if (
+            !failed &&
+            floatArea.isFootnote &&
+            floatArea.computedBlockSize <= 0 &&
+            result.newPosition
+          ) {
+            // Footnote content could not be placed (e.g., widows/orphans
+            // constraints prevented fragmentation). Fail the layout so
+            // the footnote is deferred to the next page.
+            failed = true;
+          }
           if (!failed) {
             Asserts.assert(floatArea);
             if (floatArea.isFootnote) {
@@ -1812,12 +1824,13 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
       context.restoreStashedFragments(float.floatReference);
       context.deferPageFloat(continuation);
     }
+    const isFootnote = float instanceof Footnote;
     const frame: Task.Frame<boolean> = Task.newFrame("layoutPageFloatInner");
     this.layoutSinglePageFloatFragment(
       [continuation],
       float.floatSide,
       float.clearSide,
-      !context.hasFloatFragments(),
+      isFootnote || !context.hasFloatFragments(),
       strategy,
       anchorEdge,
       pageFloatFragment,
@@ -2071,12 +2084,28 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
       } else if (this.nodeContextOverflowingDueToRepetitiveElements) {
         return Task.newResult(null);
       } else {
-        const edge = LayoutHelper.calculateEdge(
+        let edge = LayoutHelper.calculateEdge(
           nodeContextAfter,
           this.clientLayout,
           0,
           this.vertical,
         );
+        // For footnotes, calculateEdge may return NaN because footnote-call
+        // has vertical-align: super. Compute edge from the element's
+        // bounding rect to enable footnote fragmentation.
+        if (isNaN(edge) && nodeContext.floatSide === "footnote") {
+          const viewNode = nodeContextAfter.viewNode as Element;
+          if (viewNode && viewNode.nodeType === 1) {
+            const rect = LayoutHelper.getElementClientRectAdjusted(
+              this.clientLayout,
+              viewNode,
+              this.vertical,
+            );
+            if (rect.right >= rect.left && rect.bottom >= rect.top) {
+              edge = this.vertical ? rect.left : rect.bottom;
+            }
+          }
+        }
         if (this.isOverflown(edge)) {
           return Task.newResult(nodeContextAfter);
         } else {
@@ -2692,8 +2721,10 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
     }
     let widows: number;
     let orphans: number;
-    if (force) {
+    if (force && !this.isFootnote) {
       // Last resort, ignore widows/orphans
+      // (but keep enforcing them for footnotes to avoid violating
+      // widows/orphans when fragmenting footnotes across pages)
       widows = 1;
       orphans = 1;
     } else {
@@ -2924,7 +2955,7 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
     let forceRemoveSelf = false;
     if (!nodeContext) {
       // Last resort
-      if (this.forceNonfitting) {
+      if (this.forceNonfitting && !this.isFootnote) {
         Logging.logger.warn("Could not find any page breaks?!!");
         this.skipTailEdges(overflownNodeContext).then((nodeContext) => {
           if (nodeContext) {
