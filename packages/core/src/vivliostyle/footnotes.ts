@@ -18,6 +18,7 @@
  * @fileoverview Footnotes
  */
 import * as Asserts from "./asserts";
+import * as Base from "./base";
 import * as Css from "./css";
 import * as PageFloats from "./page-floats";
 import * as Task from "./task";
@@ -201,6 +202,63 @@ export class FootnoteLayoutStrategy
         floatArea.convertPercentageSizesToPx(element);
         column.setComputedInsets(element, floatArea);
         column.setComputedWidthAndHeight(element, floatArea);
+        // Handle box-sizing: border-box for footnote areas (Issue #1878).
+        // The layout engine always works in content-box mode. When the user
+        // specifies box-sizing: border-box, convert max-height/min-height
+        // to content-box equivalents and reset box-sizing on the element.
+        const computedBoxSizing =
+          column.clientLayout.getElementComputedStyle(element)?.boxSizing;
+        if (computedBoxSizing === "border-box") {
+          const blockInsets = floatArea.vertical
+            ? floatArea.paddingLeft +
+              floatArea.paddingRight +
+              floatArea.borderLeft +
+              floatArea.borderRight
+            : floatArea.paddingTop +
+              floatArea.paddingBottom +
+              floatArea.borderTop +
+              floatArea.borderBottom;
+          // In vertical writing mode, block-direction properties are
+          // width/max-width/min-width instead of height/max-height/min-height.
+          const blockProps = floatArea.vertical
+            ? ["max-width", "min-width", "width"]
+            : ["max-height", "min-height", "height"];
+          const cs = getComputedStyle(element);
+          for (const prop of blockProps) {
+            const val = cs.getPropertyValue(prop);
+            if (val && val !== "none") {
+              const px = parseFloat(val);
+              if (!isNaN(px)) {
+                Base.setCSSProperty(
+                  element,
+                  prop,
+                  `${Math.max(0, px - blockInsets)}px`,
+                );
+              }
+            }
+          }
+          Base.setCSSProperty(element, "box-sizing", "content-box");
+        }
+        // CSS GCPM §2.4.2: "The max-height property on the footnote area
+        // limits the size of this area, unless the page contains only
+        // footnotes." When the page-level context has
+        // ignoreFootnoteAreaMaxHeight set (detected after a prior layout
+        // pass found no body content), remove max-height. (Issue #1878)
+        let pageCtx: PageFloats.PageFloatLayoutContext | null =
+          column.pageFloatLayoutContext as PageFloats.PageFloatLayoutContext;
+        while (pageCtx) {
+          if (pageCtx.ignoreFootnoteAreaMaxHeight) {
+            // Clear both logical and physical max-block-size properties
+            Base.setCSSProperty(element, "max-block-size", "");
+            Base.setCSSProperty(
+              element,
+              floatArea.vertical ? "max-width" : "max-height",
+              "",
+            );
+            break;
+          }
+          pageCtx = pageCtx.parent ?? null;
+        }
         return Task.newResult(undefined);
       });
   }

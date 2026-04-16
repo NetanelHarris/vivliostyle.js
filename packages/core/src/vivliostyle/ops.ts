@@ -1671,6 +1671,59 @@ export class StyleInstance
             column.saveDistanceToBlockEndFloats();
             const edge = column.pageFloatLayoutContext.getMaxReachedAfterEdge();
             column.updateMaxReachedAfterEdge(edge);
+
+            // CSS GCPM §2.4.2: "The max-height property on the footnote area
+            // limits the size of this area, unless the page contains only
+            // footnotes." (Issue #1878)
+            // Detect pages with only footnote continuation(s) and no body
+            // content. If the column placed no body content (computedBlockSize
+            // is 0) and there are footnote fragments with max-height, remove
+            // those fragments and retry without max-height.
+            if (column.computedBlockSize === 0) {
+              const colCtx =
+                column.pageFloatLayoutContext as PageFloats.PageFloatLayoutContext;
+              // Traverse up the context hierarchy to find footnote fragments
+              // (footnotes are stored at the PAGE-level context)
+              let ctx: PageFloats.PageFloatLayoutContext | null = colCtx;
+              while (ctx) {
+                const footnoteFragments = ctx.floatFragments.filter(
+                  (f) => "isFootnote" in f.area && (f.area as any).isFootnote,
+                );
+                if (
+                  footnoteFragments.length > 0 &&
+                  !ctx.ignoreFootnoteAreaMaxHeight
+                ) {
+                  const hasMaxHeight = footnoteFragments.some((f) => {
+                    const cs = getComputedStyle(f.area.element);
+                    const isSet = (v: string) => v !== "" && v !== "none";
+                    // Check the logical property first, then the
+                    // corresponding physical property for block direction
+                    return (
+                      isSet(cs.getPropertyValue("max-block-size")) ||
+                      isSet(
+                        (f.area as any).vertical ? cs.maxWidth : cs.maxHeight,
+                      )
+                    );
+                  });
+                  if (hasMaxHeight) {
+                    ctx.ignoreFootnoteAreaMaxHeight = true;
+                    for (const frag of footnoteFragments) {
+                      // Remove fragment so it can be re-laid out
+                      colCtx.removePageFloatFragment(frag, true);
+                      // Remove deferred continuation from first pass
+                      const float = frag.continuations[0]?.float;
+                      if (float) {
+                        ctx.removeFloatDeferredToNext(float);
+                      }
+                    }
+                    // Invalidate column to trigger retry
+                    colCtx.invalidate();
+                    break;
+                  }
+                }
+                ctx = ctx.parent;
+              }
+            }
           }
           frame.finish(true);
         });

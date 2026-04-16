@@ -690,6 +690,7 @@ export namespace PageFloats {
     writingMode: Css.Val;
     direction: Css.Val;
     floatFragments: PageFloatFragment[];
+    ignoreFootnoteAreaMaxHeight: boolean;
     readonly parent: PageFloatLayoutContext;
     readonly effectiveParent: PageFloatLayoutContext | null;
     readonly flowName: string | null;
@@ -721,6 +722,7 @@ export namespace PageFloats {
     collectPageFloatAnchors(): any;
     isAnchorAlreadyAppeared(floatId: PageFloatID): boolean;
     deferPageFloat(continuation: PageFloatContinuation): void;
+    removeFloatDeferredToNext(float: PageFloat): void;
     hasPrecedingFloatsDeferredToNext(
       float: PageFloat,
       ignoreReference?: boolean,
