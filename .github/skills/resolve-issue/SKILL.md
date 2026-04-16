@@ -123,7 +123,23 @@ yarn test:core
 - If tests fail, diagnose whether the failure is pre-existing or caused by the fix.
 - If the fix intentionally changes behavior, update affected tests.
 
-### 12. Record Findings in Repo Memory
+### 12. Run Layout Regression Test
+
+Run the layout regression test against the local dev server to check for visual regressions across all test entries:
+
+```bash
+yarn test:layout-regression --actual-viewer dev --baseline-viewer canary
+```
+
+- This compares the local dev build against the canary (latest deployed) version.
+- After the run completes, read `artifacts/layout-regression/report.md` for a summary.
+- If differences are found:
+  - Check whether they are caused by the fix (expected improvement) or unintended regressions.
+  - Review diff images in `artifacts/layout-regression/diff/` if needed.
+  - Use `--title-includes` or `--file` filters to re-run specific entries for closer inspection.
+- See `docs/layout-regression-test.md` for full options and triage workflow.
+
+### 13. Record Findings in Repo Memory
 
 - Save key findings (root cause, fix approach, pitfalls) to `/memories/repo/` for future reference.
 - Use a descriptive filename like `issue1879-float-clear-fix.md`.

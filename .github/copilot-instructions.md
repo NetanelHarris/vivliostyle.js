@@ -111,6 +111,21 @@ Follow [Conventional Commits](https://conventionalcommits.org):
   - `feat(viewer): Add dark mode support`
   - `chore(deps): bump lodash from 4.17.21 to 4.17.23`
 
+### Layout Regression Testing
+
+Compare rendering results between two Vivliostyle viewer versions to detect visual regressions. See `docs/layout-regression-test.md` for full documentation.
+
+```bash
+yarn test:layout-regression                              # canary vs stable (default)
+yarn test:layout-regression --actual-viewer dev           # local dev vs canary
+yarn test:layout-regression --title-includes "Issue #1879" # filter by title
+yarn test:layout-regression --file float-clear.html       # filter by file
+yarn test:layout-regression --limit 1                     # smoke check
+```
+
+- Results: `artifacts/layout-regression/report.md`, `diff/*.png`
+- Triage: `yarn test:layout-regression:triage --show-pending`
+
 ## Common Pitfalls
 
 - Build before testing: `yarn build` (tests don't transpile TS)
