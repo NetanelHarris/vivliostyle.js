@@ -375,6 +375,14 @@ export class PageFloatLayoutContext
   footnoteMaxBlockSize: number | null = null;
 
   /**
+   * When true, max-height on @footnote areas should be ignored.
+   * Set when a page contains only footnote continuation(s) and no body
+   * content. Per CSS GCPM §2.4.2, max-height should not apply in this
+   * case. (Issue #1878)
+   */
+  ignoreFootnoteAreaMaxHeight: boolean = false;
+
+  /**
    * Tracks footnote IDs whose anchors have been registered at least once
    * during this page's layout cycle. Unlike floatAnchors, this set
    * survives invalidate() calls, so we can detect feedback loops where
@@ -695,6 +703,13 @@ export class PageFloatLayoutContext
     } else {
       const parent = this.getParent(float.floatReference);
       parent.deferPageFloat(continuation);
+    }
+  }
+
+  removeFloatDeferredToNext(float: PageFloat) {
+    const index = this.floatsDeferredToNext.findIndex((c) => c.float === float);
+    if (index >= 0) {
+      this.floatsDeferredToNext.splice(index, 1);
     }
   }
 
@@ -1477,11 +1492,13 @@ export class PageFloatLayoutContext
     );
     const blockOffset = area.vertical ? area.originX : area.originY;
     const inlineOffset = area.vertical ? area.originY : area.originX;
-    // For footnotes in the init=false pass, skip clamping blockStart/blockEnd
-    // to the area's current CSS box. The init=true pass may have constrained
-    // the area to the anchor-to-page-bottom region for footnote fragmentation,
-    // but init=false must use the full page limits for correct positioning.
-    if (!(area.isFootnote && !init)) {
+    // For footnotes, skip clamping blockStart/blockEnd to the area's own
+    // dimensions. The area dimensions may be constrained by max-block-size
+    // (max-height in horizontal, max-width in vertical), but the footnote
+    // needs the full page limits for correct block-end positioning.
+    // After positioning, the block dimension is clamped to max-block-size
+    // in setupFloatArea. (Issue #1878)
+    if (!area.isFootnote) {
       blockStart = area.vertical
         ? Math.min(
             blockStart,

@@ -1588,6 +1588,28 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
           condition,
         );
         if (fitWithinContainer) {
+          // For footnotes with max-block-size, setFloatAreaDimensions may
+          // have set the block dimension larger than the CSS max-block-size
+          // (because positioning uses page-level limits, not area bounds).
+          // Clamp to max-block-size so the JS dimension matches the browser-
+          // rendered dimension, preventing coordinate mismatches in
+          // initGeom()/computedBlockSize calculations. (Issue #1878)
+          if (area.isFootnote) {
+            const cs = getComputedStyle(area.element);
+            if (area.vertical) {
+              const maxW = parseFloat(cs.maxWidth);
+              if (!isNaN(maxW) && area.width > maxW) {
+                area.width = maxW;
+                Base.setCSSProperty(area.element, "width", `${maxW}px`);
+              }
+            } else {
+              const maxH = parseFloat(cs.maxHeight);
+              if (!isNaN(maxH) && area.height > maxH) {
+                area.height = maxH;
+                Base.setCSSProperty(area.element, "height", `${maxH}px`);
+              }
+            }
+          }
           // New dimensions have been set, remove exclusion floats and re-init
           area.killFloats();
           area.init();
