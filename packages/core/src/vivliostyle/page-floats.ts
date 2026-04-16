@@ -21,6 +21,7 @@ import * as Asserts from "./asserts";
 import * as Css from "./css";
 import * as Constants from "./constants";
 import * as GeometryUtil from "./geometry-util";
+import * as LayoutHelper from "./layout-helper";
 import * as Logging from "./logging";
 import * as CssLogicalUtil from "./css-logical-util";
 import * as Sizing from "./sizing";
@@ -32,6 +33,14 @@ export const FloatReference = PageFloats.FloatReference;
 export type FloatReference = PageFloats.FloatReference; // eslint-disable-line no-redeclare
 
 type PageFloatID = PageFloats.PageFloatID;
+
+/**
+ * Minimum outer block size (in px) for a footnote during iterative sizing.
+ * When the halved size falls below this threshold, the retry loop stops and
+ * the footnote is forbidden instead. Chosen to be roughly one line-height so
+ * that the fragment is still visually meaningful. (Issue #1879)
+ */
+const MIN_FOOTNOTE_BLOCK_SIZE = 20;
 
 export function floatReferenceOf(str: string): FloatReference {
   switch (str) {
@@ -357,6 +366,21 @@ export class PageFloatLayoutContext
   private floatsDeferredFromPrevious: PageFloatContinuation[];
   private layoutConstraints: LayoutType.LayoutConstraint[] = [];
   private locked: boolean = false;
+  /**
+   * Maximum outer block size for footnotes on this page.
+   * Set when a footnote is placed but then found to be not-allowed (anchor
+   * not reachable in multi-column). Each retry halves this value until
+   * the footnote fits or is too small to display. (Issue #1879)
+   */
+  footnoteMaxBlockSize: number | null = null;
+
+  /**
+   * Tracks footnote IDs whose anchors have been registered at least once
+   * during this page's layout cycle. Unlike floatAnchors, this set
+   * survives invalidate() calls, so we can detect feedback loops where
+   * a footnote's own size pushes its anchor off the page. (Issue #1879)
+   */
+  private footnoteAnchorsSeen: Set<PageFloatID> = new Set();
 
   /**
    * Reference to the outer column's context for page float area contexts.
@@ -621,6 +645,16 @@ export class PageFloatLayoutContext
 
   registerPageFloatAnchor(float: PageFloat, anchorViewNode: Node) {
     this.floatAnchors[float.getId()] = anchorViewNode;
+    // Record that this float's anchor has been seen at least once on this
+    // page, propagating up the context hierarchy so the page-level context
+    // can detect feedback loops. (Issue #1879)
+    if ("footnotePolicy" in float) {
+      let ctx: PageFloatLayoutContext | null = this;
+      while (ctx) {
+        ctx.footnoteAnchorsSeen.add(float.getId());
+        ctx = ctx.parent ?? ctx.outerContext;
+      }
+    }
   }
 
   collectPageFloatAnchors() {
@@ -766,9 +800,53 @@ export class PageFloatLayoutContext
       const fragment = this.floatFragments[i];
       const notAllowedFloat = fragment.findNotAllowedFloat(this);
       if (notAllowedFloat) {
+        const isFootnote =
+          fragment.area &&
+          "isFootnote" in fragment.area &&
+          (fragment.area as any).isFootnote;
         if (this.locked) {
           this.invalidate();
         } else {
+          // Issue #1879: For footnotes in multi-column, try reducing the
+          // footnote size instead of forbidding. When a page-level footnote
+          // is too large, it reduces column/page heights so much that the
+          // anchor can't be reached (feedback loop). Halving the size and
+          // retrying lets the footnote fragment at a size that still allows
+          // the anchor to be reached during re-layout.
+          // Detect multi-column: either root multicol (multiple column
+          // contexts) or non-root multicol (browser-native columns inside
+          // a single column context).
+          const hasMultiColumn =
+            isFootnote &&
+            this.footnoteAnchorsSeen.has(notAllowedFloat.getId()) &&
+            (this.children.some((child) => child.children.length > 1) ||
+              this.children.some((child) =>
+                child.children.some((grandchild) => {
+                  const elem = grandchild.getContainer()?.element;
+                  return (
+                    elem != null &&
+                    LayoutHelper.containsNonRootMultiColumn(elem)
+                  );
+                }),
+              ));
+          if (hasMultiColumn) {
+            const currentOuter =
+              fragment.area.computedBlockSize +
+              fragment.area.getInsetBefore() +
+              fragment.area.getInsetAfter();
+            const newMax =
+              this.footnoteMaxBlockSize != null
+                ? this.footnoteMaxBlockSize / 2
+                : currentOuter / 2;
+            if (newMax >= MIN_FOOTNOTE_BLOCK_SIZE) {
+              // Retry with reduced size
+              this.footnoteMaxBlockSize = newMax;
+              this.removePageFloatFragment(fragment);
+              this.removeEndFloatFragments(fragment.floatSide);
+              return true;
+            }
+            // Too small to display — fall through to forbid
+          }
           this.removePageFloatFragment(fragment);
           this.forbid(notAllowedFloat);
 
@@ -1501,7 +1579,22 @@ export class PageFloatLayoutContext
         }
       }
       outerBlockSize = (blockEnd - blockStart) * area.getBoxDir();
-      blockSize = outerBlockSize - area.getInsetBefore() - area.getInsetAfter();
+      // Issue #1879: Apply footnoteMaxBlockSize constraint from iterative
+      // retry. When a footnote was found too large (anchor not reachable
+      // in multi-column re-layout), this limits the footnote area.
+      if (area.isFootnote && this.footnoteMaxBlockSize != null) {
+        outerBlockSize = Math.min(outerBlockSize, this.footnoteMaxBlockSize);
+        // Adjust blockStart accordingly for correct positioning
+        if (area.vertical) {
+          blockStart = blockEnd + outerBlockSize;
+        } else {
+          blockStart = blockEnd - outerBlockSize;
+        }
+      }
+      blockSize = Math.max(
+        0,
+        outerBlockSize - area.getInsetBefore() - area.getInsetAfter(),
+      );
       outerInlineSize = (inlineEnd - inlineStart) * area.getInlineDir();
       inlineSize = outerInlineSize - area.getInsetStart() - area.getInsetEnd();
       if (!force && (blockSize <= 0 || inlineSize <= 0)) {

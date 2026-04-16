@@ -1727,7 +1727,14 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
             // Footnote content could not be placed (e.g., widows/orphans
             // constraints prevented fragmentation). Fail the layout so
             // the footnote is deferred to the next page.
-            failed = true;
+            // Exception: during iterative footnote sizing (Issue #1879),
+            // allow empty fragments so the retry cycle can continue.
+            const floatContext = context.getPageFloatLayoutContext(
+              firstFloat.floatReference,
+            );
+            if (floatContext.footnoteMaxBlockSize == null) {
+              failed = true;
+            }
           }
           if (!failed) {
             Asserts.assert(floatArea);
