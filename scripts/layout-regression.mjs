@@ -642,7 +642,6 @@ async function waitForViewerReady(page, timeoutMs) {
     undefined,
     { timeout: timeoutMs },
   );
-  await page.waitForTimeout(250);
 }
 
 async function checkViewerError(page) {
@@ -684,7 +683,6 @@ async function navigateToPageByInput(page, pageNumber, timeoutMs) {
     pageNumber,
     { timeout: timeoutMs },
   );
-  await page.waitForTimeout(120);
 }
 
 async function navigateToNextPage(page, timeoutMs) {
@@ -697,7 +695,6 @@ async function navigateToNextPage(page, timeoutMs) {
     undefined,
     { timeout: timeoutMs },
   );
-  await page.waitForTimeout(120);
 }
 
 async function capturePages({
