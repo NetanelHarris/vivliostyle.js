@@ -1,3 +1,27 @@
+- category: Page floats
+  title: Forbid text around fragmented page floats
+  file: page_floats/text_around_fragmented_page_floats.html
+  decision: expected  # regression / expected / skip
+  notes: improved
+  approvedViewer: git-fix-issue1880  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/page_floats/text_around_fragmented_page_floats.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle.org/viewer/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/page_floats/text_around_fragmented_page_floats.html&zoom=1&spread=false
+- category: Footnotes
+  title: Footnotes and page floats
+  file: footnotes/footnotes_and_page_floats.html
+  decision: expected  # regression / expected / skip
+  notes: "Issue #1880 fix: deferred footnotes now correctly placed on blank spread-break pages"
+  approvedViewer: git-fix-issue1880  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/footnotes_and_page_floats.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle.org/viewer/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/footnotes_and_page_floats.html&zoom=1&spread=false
 - category: Footnotes
   title: "Footnote area max-height (Issue #1878)"
   file: footnotes/footnote-area-max-height.html
