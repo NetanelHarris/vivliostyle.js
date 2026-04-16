@@ -1514,6 +1514,14 @@ export class StyleInstance
   ): Task.Result<boolean> {
     const flowPosition = this.currentLayoutPosition.flowPositions[flowName];
     if (!flowPosition || !this.matchPageSide(flowPosition.startBreakType)) {
+      // On blank pages created by spread breaks (e.g., break-after: left),
+      // still try to place deferred page floats such as footnotes that were
+      // deferred from the previous page. (Issue #1880)
+      if (flowPosition) {
+        this.setFormattingContextToColumn(column, flowName);
+        column.init();
+        return this.layoutDeferredPageFloats(column);
+      }
       return Task.newResult(true);
     }
 
@@ -1611,6 +1619,21 @@ export class StyleInstance
                       column,
                       newPosition,
                     );
+                  // CSS Fragmentation: forced break-after on the last child
+                  // of a fragmentainer has no effect when there is no more
+                  // content after it. When all content in the flow is consumed
+                  // (newPosition is null and no remaining flow chunks) and the
+                  // column has a pageBreakType from the last element's
+                  // break-after, clear it to avoid generating unnecessary
+                  // blank pages. (Issue #1880)
+                  if (!newPosition && column.pageBreakType) {
+                    // Count remaining positions (excluding current and removed)
+                    const remainingPositions =
+                      flowPosition.positions.length - removedIndices.length - 1; // -1 for current position being removed
+                    if (remainingPositions <= 0) {
+                      column.pageBreakType = null;
+                    }
+                  }
                   if (column.pageBreakType && lastAfterPosition) {
                     selected.chunkPosition = lastAfterPosition;
 
