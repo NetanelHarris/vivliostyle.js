@@ -1,4 +1,16 @@
 - category: Footnotes
+  title: "Footnote fragmentation in multi-column (Issue #1879)"
+  file: footnotes/footnote-fragmentation-multicol.html
+  decision: expected  # regression / expected / skip
+  notes: ""
+  approvedViewer: git-fix-issue1879  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/footnote-fragmentation-multicol.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle.org/viewer/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/footnote-fragmentation-multicol.html&zoom=1&spread=false
+- category: Footnotes
   title: "Footnote fragmentation across pages (Issue #1875)"
   file: footnotes/footnote-fragmentation.html
   decision: expected  # regression / expected / skip
