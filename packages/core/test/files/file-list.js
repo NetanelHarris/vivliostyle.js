@@ -97,6 +97,15 @@ module.exports = [
         file: "float-lh-rlh.html",
         title: "Float with lh/rlh height (Issue #1494, #1738)",
       },
+      {
+        file: "float-in-position-relative.html",
+        title: "Float in position:relative across page break (Issue #1885)",
+      },
+      {
+        file: "float-in-position-relative-vertical.html",
+        title:
+          "Float in position:relative across page break, vertical writing mode (Issue #1885)",
+      },
       { file: "content-attr.html", title: "Content attr()" },
       { file: "relative_floats.html", title: "Floats with position: relative" },
       { file: "target-counter.html", title: "target-counter" },

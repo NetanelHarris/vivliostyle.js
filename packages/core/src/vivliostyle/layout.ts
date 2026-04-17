@@ -1478,20 +1478,25 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
           top: this.getTopEdge() - this.paddingTop,
         };
       }
+      // The computed float offset from the block-start edge of its
+      // containing block may be negative when the containing block has
+      // `position: relative` and has been pushed along the block-progression
+      // direction by a margin carried over from a preceding sibling across
+      // a column/page break. Clamp the offset to be non-negative so that
+      // the float stays inside the containing block. (Issue #1885)
       if (
         containingBlockForAbsolute
           ? containingBlockForAbsolute.vertical
           : this.vertical
       ) {
-        Base.setCSSProperty(
-          element,
-          "right",
-          `${offsets.right - floatBox.x2}px`,
-        );
+        const rightValue = Math.max(0, offsets.right - floatBox.x2);
+        Base.setCSSProperty(element, "right", `${rightValue}px`);
       } else {
-        Base.setCSSProperty(element, "left", `${floatBox.x1 - offsets.left}px`);
+        const leftValue = Math.max(0, floatBox.x1 - offsets.left);
+        Base.setCSSProperty(element, "left", `${leftValue}px`);
       }
-      Base.setCSSProperty(element, "top", `${floatBox.y1 - offsets.top}px`);
+      const topValue = Math.max(0, floatBox.y1 - offsets.top);
+      Base.setCSSProperty(element, "top", `${topValue}px`);
       if (nodeContext.clearSpacer) {
         nodeContext.clearSpacer.parentNode.removeChild(nodeContext.clearSpacer);
         nodeContext.clearSpacer = null;
