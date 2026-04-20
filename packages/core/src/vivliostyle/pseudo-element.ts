@@ -44,6 +44,7 @@ export const pseudoNames = [
   "first-line",
   "first-letter",
   "before",
+  "footnote-call",
   "",
   /* content */
   "after",

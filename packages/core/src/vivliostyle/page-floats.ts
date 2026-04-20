@@ -912,6 +912,27 @@ export class PageFloatLayoutContext
     }
     for (let i = this.floatsDeferredToNext.length - 1; i >= 0; i--) {
       const continuation = this.floatsDeferredToNext[i];
+      const float = continuation.float;
+      if (
+        this.floatReference === FloatReference.PAGE &&
+        "footnotePolicy" in float &&
+        float.footnotePolicy === Css.ident.line &&
+        this.footnoteAnchorsSeen.has(float.getId())
+      ) {
+        // Once the anchor line has already appeared on the page, a deferred
+        // footnote-policy: line footnote can no longer move independently.
+        if (this.locked) {
+          this.invalidate();
+          return;
+        }
+        this.removeFloatDeferredToNext(float);
+        this.forbid(float);
+        this.invalidate();
+        return;
+      }
+    }
+    for (let i = this.floatsDeferredToNext.length - 1; i >= 0; i--) {
+      const continuation = this.floatsDeferredToNext[i];
       if (!continuation.float.isAllowedOnContext(this)) {
         if (this.locked) {
           this.invalidate();
