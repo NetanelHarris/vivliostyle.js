@@ -74,11 +74,11 @@
       }
 
       .inline-author-separator .footnote::after {
-        content: "\3000";
+        content: "|";
       }
 
       .compact-no-separator {
-        color: #505;
+        color: #a63a00;
       }
 
       .compact-no-separator .footnote {
@@ -90,7 +90,7 @@
       }
 
       .display-inline {
-        color: #606;
+        color: #005a8d;
       }
 
       .display-inline .footnote {
@@ -214,30 +214,30 @@
     <section class="inline-author-separator">
       <h2>footnote-display: inline with author ::after separator</h2>
       <p class="expected">
-        When author CSS sets .footnote::after content, that content should replace the default space separator between inline footnotes.
+        When author CSS sets .footnote::after content, that content should replace the default space separator between inline footnotes, and line breaks should still be allowed between adjacent footnotes even though the author separator is not whitespace.
       </p>
       <p>
-        Author CSS should be able to use an ideographic separator between inline semantic footnotes<a id="inline-author-ref-1" href="#inline-author-note-1" class="footnote-ref" role="doc-noteref"><sup>1</sup></a>
+        Author CSS should be able to use a visible non-space separator between inline semantic footnotes<a id="inline-author-ref-1" href="#inline-author-note-1" class="footnote-ref" role="doc-noteref"><sup>1</sup></a>
         and keep using that author-defined separator for the next inline footnote<a id="inline-author-ref-2" href="#inline-author-note-2" class="footnote-ref" role="doc-noteref"><sup>2</sup></a>
         instead of the default single ASCII space<a id="inline-author-ref-3" href="#inline-author-note-3" class="footnote-ref" role="doc-noteref"><sup>3</sup></a>.
       </p>
-      <aside id="inline-author-note-1" class="footnote" role="doc-footnote"><a href="#inline-author-ref-1" class="footnote-back" role="doc-backlink"><sup>1</sup></a>First note.</aside>
-      <aside id="inline-author-note-2" class="footnote" role="doc-footnote"><a href="#inline-author-ref-2" class="footnote-back" role="doc-backlink"><sup>2</sup></a>Second note.</aside>
-      <aside id="inline-author-note-3" class="footnote" role="doc-footnote"><a href="#inline-author-ref-3" class="footnote-back" role="doc-backlink"><sup>3</sup></a>Third note.</aside>
+      <aside id="inline-author-note-1" class="footnote" role="doc-footnote"><a href="#inline-author-ref-1" class="footnote-back" role="doc-backlink"><sup>1</sup></a>AuthorSeparatorAlphaSegment.</aside>
+      <aside id="inline-author-note-2" class="footnote" role="doc-footnote"><a href="#inline-author-ref-2" class="footnote-back" role="doc-backlink"><sup>2</sup></a>AuthorSeparatorBetaSegment.</aside>
+      <aside id="inline-author-note-3" class="footnote" role="doc-footnote"><a href="#inline-author-ref-3" class="footnote-back" role="doc-backlink"><sup>3</sup></a>AuthorSeparatorGammaSegment.</aside>
     </section>
     <section class="compact-no-separator">
       <h2>footnote-display: compact with author ::after none</h2>
       <p class="expected">
-        When author CSS sets .footnote::after to none, compact inline footnotes should appear with no default separator inserted between them.
+        When author CSS sets .footnote::after to none, compact inline footnotes should appear with no default separator inserted between them, but adjacent compact notes should still be able to wrap between notes.
       </p>
       <p>
         Compact semantic footnotes should allow the author to suppress separators entirely<a id="compact-none-ref-1" href="#compact-none-note-1" class="footnote-ref" role="doc-noteref"><sup>1</sup></a>
-        so the next compact footnote follows with no generated gap<a id="compact-none-ref-2" href="#compact-none-note-2" class="footnote-ref" role="doc-noteref"><sup>2</sup></a>
+        so the next compact footnote follows with no generated gap yet can still move to the next line<a id="compact-none-ref-2" href="#compact-none-note-2" class="footnote-ref" role="doc-noteref"><sup>2</sup></a>
         and a third note also keeps that explicit no-separator behavior<a id="compact-none-ref-3" href="#compact-none-note-3" class="footnote-ref" role="doc-noteref"><sup>3</sup></a>.
       </p>
-      <aside id="compact-none-note-1" class="footnote" role="doc-footnote"><a href="#compact-none-ref-1" class="footnote-back" role="doc-backlink"><sup>1</sup></a>First compact note.</aside>
-      <aside id="compact-none-note-2" class="footnote" role="doc-footnote"><a href="#compact-none-ref-2" class="footnote-back" role="doc-backlink"><sup>2</sup></a>Second compact note.</aside>
-      <aside id="compact-none-note-3" class="footnote" role="doc-footnote"><a href="#compact-none-ref-3" class="footnote-back" role="doc-backlink"><sup>3</sup></a>Third compact note.</aside>
+      <aside id="compact-none-note-1" class="footnote" role="doc-footnote"><a href="#compact-none-ref-1" class="footnote-back" role="doc-backlink"><sup>1</sup></a>CompactBreakAlphaSegment.</aside>
+      <aside id="compact-none-note-2" class="footnote" role="doc-footnote"><a href="#compact-none-ref-2" class="footnote-back" role="doc-backlink"><sup>2</sup></a>CompactBreakBetaSegment.</aside>
+      <aside id="compact-none-note-3" class="footnote" role="doc-footnote"><a href="#compact-none-ref-3" class="footnote-back" role="doc-backlink"><sup>3</sup></a>CompactBreakGammaSegment.</aside>
     </section>
     <section class="display-inline">
       <h2>display: inline</h2>

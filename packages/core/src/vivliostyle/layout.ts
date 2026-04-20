@@ -39,6 +39,7 @@ import * as PageFloats from "./page-floats";
 import * as Plugin from "./plugin";
 import * as Matchers from "./matchers";
 import * as PseudoElement from "./pseudo-element";
+import * as SemanticFootnote from "./semantic-footnote";
 import * as Task from "./task";
 import * as Vgen from "./vgen";
 import * as VtreeImpl from "./vtree";
@@ -5290,9 +5291,25 @@ export class PageFloatArea extends Column implements Layout.PageFloatArea {
 
   private hasAuthorFootnoteAfterPseudo(element: Element): boolean {
     const afterPseudo = this.getFootnoteAfterPseudo(element);
-    return (
+    if (
       !!afterPseudo &&
       !afterPseudo.hasAttribute("data-vivliostyle-default-footnote-separator")
+    ) {
+      return true;
+    }
+    const semanticFootnoteChild = Array.from(element.children).find(
+      (child) =>
+        child instanceof Element &&
+        SemanticFootnote.isSemanticFootnoteElement(child),
+    ) as Element | undefined;
+    const semanticAfterPseudo = semanticFootnoteChild
+      ? this.getFootnoteAfterPseudo(semanticFootnoteChild)
+      : null;
+    return (
+      !!semanticAfterPseudo &&
+      !semanticAfterPseudo.hasAttribute(
+        "data-vivliostyle-default-footnote-separator",
+      )
     );
   }
 
@@ -5303,6 +5320,19 @@ export class PageFloatArea extends Column implements Layout.PageFloatArea {
     after.style.whiteSpace = "normal";
     after.textContent = " ";
     element.appendChild(after);
+  }
+
+  private getFootnoteBreakOpportunity(element: Element): HTMLElement | null {
+    const nextSibling = element.nextElementSibling;
+    return nextSibling?.hasAttribute("data-vivliostyle-footnote-break")
+      ? (nextSibling as HTMLElement)
+      : null;
+  }
+
+  private createFootnoteBreakOpportunity(element: HTMLElement): void {
+    const breakOpportunity = element.ownerDocument.createElement("wbr");
+    breakOpportunity.setAttribute("data-vivliostyle-footnote-break", "1");
+    element.insertAdjacentElement("afterend", breakOpportunity);
   }
 
   private updateInlineFootnoteSeparators(): void {
@@ -5323,16 +5353,28 @@ export class PageFloatArea extends Column implements Layout.PageFloatArea {
       const isDefaultAfterPseudo = !!afterPseudo?.hasAttribute(
         "data-vivliostyle-default-footnote-separator",
       );
+      const breakOpportunity = this.getFootnoteBreakOpportunity(element);
       if (display === "inline" && nextDisplay === "inline") {
+        const needsDefaultSeparator = !afterPseudo && !authorAfterPseudoExists;
         // Insert the UA default only when the rendered footnote element
-        // itself does not already carry an author-defined ::after pseudo.
-        if (!afterPseudo && !authorAfterPseudoExists) {
+        // or its direct semantic footnote child does not already carry an
+        // author-defined ::after pseudo.
+        if (needsDefaultSeparator) {
           this.createDefaultFootnoteAfterPseudo(element);
+        }
+        // Author overrides can remove or replace the default separating space,
+        // which would otherwise remove the wrap opportunity between compact
+        // inline footnotes. Add an invisible break opportunity in that case.
+        if (!needsDefaultSeparator && !breakOpportunity) {
+          this.createFootnoteBreakOpportunity(element);
+        } else if (needsDefaultSeparator) {
+          breakOpportunity?.remove();
         }
       } else {
         if (isDefaultAfterPseudo) {
           afterPseudo.remove();
         }
+        breakOpportunity?.remove();
       }
     });
   }
