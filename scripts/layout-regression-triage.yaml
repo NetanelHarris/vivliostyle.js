@@ -1,4 +1,16 @@
 - category: Footnotes
+  title: "DPUB footnote-display (Issue #1884)"
+  file: footnotes/dpub-footnote-display.html
+  decision: expected  # regression / expected / skip
+  notes: ""
+  approvedViewer: git-fix-issue1884a  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/dpub-footnote-display.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle-git-feat-issue1884-vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/dpub-footnote-display.html&zoom=1&spread=false
+- category: Footnotes
   title: "footnote-display (Issue #1825)"
   file: footnotes/footnote-display.html
   decision: expected  # regression / expected / skip
@@ -9,7 +21,43 @@
     https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/footnote-display.html&zoom=1&spread=false
   baselineLabel: stable
   baselineUrl: >-
-    https://vivliostyle.org/viewer/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/footnote-display.html&zoom=1&spread=false
+    https://vivliostyle-git-feat-issue1884-vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/footnote-display.html&zoom=1&spread=false
+- category: Footnotes
+  title: "footnote-display (Issue #1825)"
+  file: footnotes/footnote-display.html
+  decision: expected  # regression / expected / skip
+  notes: ""
+  approvedViewer: git-feat-issue1884  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/footnote-display.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle-git-feat-issue1884-vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/footnote-display.html&zoom=1&spread=false
+- category: Footnotes
+  title: DPUB ::footnote-call replaces noteref content
+  file: footnotes/dpub-footnote-call-replaces-content.html
+  decision: expected  # regression / expected / skip
+  notes: ""
+  approvedViewer: git-feat-issue1884  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/dpub-footnote-call-replaces-content.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle-git-feat-issue1884-vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/dpub-footnote-call-replaces-content.html&zoom=1&spread=false
+- category: Footnotes
+  title: DPUB ::footnote-call replaces noteref content
+  file: footnotes/dpub-footnote-call-replaces-content.html
+  decision: expected  # regression / expected / skip
+  notes: ""
+  approvedViewer: git-feat-issue1884  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/dpub-footnote-call-replaces-content.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle-git-feat-issue1884-vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/dpub-footnote-call-replaces-content.html&zoom=1&spread=false
 - category: Footnotes
   title: "DPUB footnotes with target-counter() (Issue #1700)"
   file: footnotes/dpub-footnotes-target-counter.html
@@ -59,18 +107,6 @@
   baselineUrl: >-
     https://vivliostyle.org/viewer/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/dpub-footnote-inherit.html&zoom=1&spread=false
 - category: Footnotes
-  title: "DPUB footnote-display (Issue #1884)"
-  file: footnotes/dpub-footnote-display.html
-  decision: expected  # regression / expected / skip
-  notes: improved but still incomplete at Page 4
-  approvedViewer: git-feat-issue1884  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
-  actualLabel: canary
-  actualUrl: >-
-    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/dpub-footnote-display.html&zoom=1&spread=false
-  baselineLabel: stable
-  baselineUrl: >-
-    https://vivliostyle.org/viewer/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/dpub-footnote-display.html&zoom=1&spread=false
-- category: Footnotes
   title: "DPUB footnote-policy comparison (Issue #1884)"
   file: footnotes/dpub-footnote-policy.html
   decision: expected  # regression / expected / skip
@@ -94,18 +130,6 @@
   baselineLabel: stable
   baselineUrl: >-
     https://vivliostyle.org/viewer/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/dpub-footnote-call-marker.html&zoom=1&spread=false
-- category: Footnotes
-  title: DPUB ::footnote-call replaces noteref content
-  file: footnotes/dpub-footnote-call-replaces-content.html
-  decision: expected  # regression / expected / skip
-  notes: ""
-  approvedViewer: git-feat-issue1884  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
-  actualLabel: canary
-  actualUrl: >-
-    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/dpub-footnote-call-replaces-content.html&zoom=1&spread=false
-  baselineLabel: stable
-  baselineUrl: >-
-    https://vivliostyle.org/viewer/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/footnotes/dpub-footnote-call-replaces-content.html&zoom=1&spread=false
 - category: Footnotes
   title: DPUB @footnote ::before inherits @footnote font-size
   file: footnotes/dpub-footnote-area-before-inherits-font-size.html
