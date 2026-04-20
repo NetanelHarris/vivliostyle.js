@@ -5187,6 +5187,17 @@ export class PageFloatArea extends Column implements Layout.PageFloatArea {
     const styler = viewFactory?.styler;
     const xmldoc = viewFactory?.xmldoc;
     const compactFootnotes = this.rootViewNodes.filter((node) => {
+      const computedStyle =
+        node.ownerDocument.defaultView?.getComputedStyle(node);
+      const renderedFootnoteDisplay =
+        computedStyle?.getPropertyValue("--viv-footnote-display").trim() || "";
+      if (renderedFootnoteDisplay === "compact") {
+        return !(
+          computedStyle?.display === "list-item" &&
+          computedStyle.getPropertyValue("list-style-position").trim() ===
+            "outside"
+        );
+      }
       const offset = node.getAttribute(Base.ELEMENT_OFFSET_ATTR);
       if (!offset || !styler || !xmldoc) {
         return false;
@@ -5222,7 +5233,6 @@ export class PageFloatArea extends Column implements Layout.PageFloatArea {
     const tolerance = 1.5 / (this.clientLayout.pixelRatio || 1);
     const measureCompactInlineSize = (element: HTMLElement): number => {
       const clone = element.cloneNode(true) as HTMLElement;
-      clone.style.removeProperty("--viv-footnote-inline-separator");
       Base.setCSSProperty(clone, "display", "inline-block");
       Base.setCSSProperty(clone, "position", "absolute");
       Base.setCSSProperty(clone, "visibility", "hidden");
@@ -5272,6 +5282,29 @@ export class PageFloatArea extends Column implements Layout.PageFloatArea {
     );
   }
 
+  private getFootnoteAfterPseudo(element: Element): HTMLElement | null {
+    return Array.from(element.children).find(
+      (child) => PseudoElement.getPseudoName(child) === "after",
+    ) as HTMLElement | null;
+  }
+
+  private hasAuthorFootnoteAfterPseudo(element: Element): boolean {
+    const afterPseudo = this.getFootnoteAfterPseudo(element);
+    return (
+      !!afterPseudo &&
+      !afterPseudo.hasAttribute("data-vivliostyle-default-footnote-separator")
+    );
+  }
+
+  private createDefaultFootnoteAfterPseudo(element: HTMLElement): void {
+    const after = element.ownerDocument.createElement("span");
+    PseudoElement.setPseudoName(after, "after");
+    after.setAttribute("data-vivliostyle-default-footnote-separator", "1");
+    after.style.whiteSpace = "normal";
+    after.textContent = " ";
+    element.appendChild(after);
+  }
+
   private updateInlineFootnoteSeparators(): void {
     this.rootViewNodes.forEach((node, index) => {
       const element = node as HTMLElement;
@@ -5284,10 +5317,22 @@ export class PageFloatArea extends Column implements Layout.PageFloatArea {
         nextElement?.ownerDocument.defaultView?.getComputedStyle(
           nextElement,
         ).display;
+      const afterPseudo = this.getFootnoteAfterPseudo(element);
+      const authorAfterPseudoExists =
+        this.hasAuthorFootnoteAfterPseudo(element);
+      const isDefaultAfterPseudo = !!afterPseudo?.hasAttribute(
+        "data-vivliostyle-default-footnote-separator",
+      );
       if (display === "inline" && nextDisplay === "inline") {
-        element.style.setProperty("--viv-footnote-inline-separator", '" "');
+        // Insert the UA default only when the rendered footnote element
+        // itself does not already carry an author-defined ::after pseudo.
+        if (!afterPseudo && !authorAfterPseudoExists) {
+          this.createDefaultFootnoteAfterPseudo(element);
+        }
       } else {
-        element.style.removeProperty("--viv-footnote-inline-separator");
+        if (isDefaultAfterPseudo) {
+          afterPseudo.remove();
+        }
       }
     });
   }

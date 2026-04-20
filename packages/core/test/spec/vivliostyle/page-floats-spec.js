@@ -1496,6 +1496,67 @@ describe("page-floats", function () {
         expect(context.removePageFloatFragment).not.toHaveBeenCalled();
         expect(context.floatsDeferredToNext).toEqual([cont3, cont4]);
       });
+
+      it("forbids deferred line-policy footnotes on page contexts after the anchor appeared", function () {
+        var pageContext = new PageFloatLayoutContext(
+          rootContext,
+          FloatReference.PAGE,
+          null,
+          null,
+          null,
+          null,
+          null,
+        );
+        spyOn(pageContext, "invalidate").and.callThrough();
+        var float = new PageFloat(
+          dummyNodePosition(),
+          FloatReference.PAGE,
+          "block-end",
+          null,
+          "body",
+        );
+        float.footnotePolicy = adapt_css.ident.line;
+        pageContext.addPageFloat(float);
+        var continuation = new PageFloatContinuation(float, {});
+        pageContext.floatsDeferredToNext = [continuation];
+        pageContext.footnoteAnchorsSeen.add(float.getId());
+
+        pageContext.finish();
+
+        expect(pageContext.isForbidden(float)).toBe(true);
+        expect(pageContext.floatsDeferredToNext).toEqual([]);
+        expect(pageContext.invalidate).toHaveBeenCalled();
+      });
+
+      it("does not forbid deferred line-policy footnotes on region contexts", function () {
+        var regionContext = new PageFloatLayoutContext(
+          rootContext,
+          FloatReference.REGION,
+          null,
+          null,
+          null,
+          null,
+          null,
+        );
+        spyOn(regionContext, "invalidate").and.callThrough();
+        var float = new PageFloat(
+          dummyNodePosition(),
+          FloatReference.REGION,
+          "block-end",
+          null,
+          "body",
+        );
+        float.footnotePolicy = adapt_css.ident.line;
+        regionContext.addPageFloat(float);
+        var continuation = new PageFloatContinuation(float, {});
+        regionContext.floatsDeferredToNext = [continuation];
+        regionContext.footnoteAnchorsSeen.add(float.getId());
+
+        regionContext.finish();
+
+        expect(regionContext.isForbidden(float)).toBe(false);
+        expect(regionContext.invalidate).not.toHaveBeenCalled();
+      });
     });
 
     describe("#invalidate", function () {

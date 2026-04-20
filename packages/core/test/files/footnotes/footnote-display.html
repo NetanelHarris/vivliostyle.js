@@ -72,6 +72,30 @@
       .footnote-display-compact .footnote {
         footnote-display: compact;
       }
+
+      .inline-author-separator {
+        color: #055;
+      }
+
+      .inline-author-separator .footnote {
+        footnote-display: inline;
+      }
+
+      .inline-author-separator .footnote::after {
+        content: "\3000";
+      }
+
+      .compact-no-separator {
+        color: #505;
+      }
+
+      .compact-no-separator .footnote {
+        footnote-display: compact;
+      }
+
+      .compact-no-separator .footnote::after {
+        content: none;
+      }
     </style>
   </head>
   <body>
@@ -114,6 +138,28 @@
         while the following short compact notes can still share a later line inline<span class="footnote">Short compact note.</span>
         and continue with another short compact note on that same line<span class="footnote">Another short note.</span>
         before a final longer compact note falls back to block again<span class="footnote">A longer trailing compact note that no longer fits as a single unbroken inline note.</span>.
+      </p>
+    </section>
+    <section class="inline-author-separator">
+      <h2>footnote-display: inline with author ::after separator</h2>
+      <p class="expected">
+        Author CSS for .footnote::after should replace the default space separator between inline footnotes.
+      </p>
+      <p>
+        Author CSS should be able to use an ideographic separator between inline footnotes<span class="footnote">First note.</span>
+        and keep using that author-defined separator for the next inline footnote<span class="footnote">Second note.</span>
+        instead of the default single ASCII space<span class="footnote">Third note.</span>.
+      </p>
+    </section>
+    <section class="compact-no-separator">
+      <h2>footnote-display: compact with author ::after none</h2>
+      <p class="expected">
+        Author CSS for .footnote::after should also be able to suppress the default separator entirely for compact inline footnotes.
+      </p>
+      <p>
+        Compact footnotes should allow the author to suppress separators entirely<span class="footnote">First compact note.</span>
+        so the next compact footnote follows with no generated gap<span class="footnote">Second compact note.</span>
+        and a third note also keeps that explicit no-separator behavior<span class="footnote">Third compact note.</span>.
       </p>
     </section>
   </body>

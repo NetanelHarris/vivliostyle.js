@@ -100,6 +100,75 @@ describe("css-validator", function () {
         return adapt_task.newResult(true);
       });
     });
+
+    it("should parse selector functions with a top-level cascade handler", function (done) {
+      var validatorSet = adapt_cssvalid.baseValidatorSet();
+      var handler = new adapt_csscasc.CascadeParserHandler(
+        null,
+        null,
+        null,
+        null,
+        null,
+        validatorSet,
+        true,
+      );
+      handler.startStylesheet(adapt_cssparse.StylesheetFlavor.USER_AGENT);
+      var warnListener = jasmine.createSpy("warn listener");
+      vivliostyle_logging.logger.addListener(
+        vivliostyle_logging.LogLevel.WARN,
+        warnListener,
+      );
+      adapt_task.start(function () {
+        adapt_cssparse
+          .parseStylesheetFromText(
+            '@namespace epub "http://www.idpf.org/2007/ops";\n:not(a[epub|type~="noteref"], a[epub\\:type~="noteref"], a[role~="doc-noteref"])::footnote-call { content: counter(footnote); }',
+            handler,
+            null,
+            null,
+            null,
+          )
+          .then(function (result) {
+            expect(result).toBe(true);
+            expect(warnListener).not.toHaveBeenCalled();
+            done();
+          });
+        return adapt_task.newResult(true);
+      });
+    });
+    it("should parse semantic footnote noteref default selectors", function (done) {
+      var validatorSet = adapt_cssvalid.baseValidatorSet();
+      var handler = new adapt_csscasc.CascadeParserHandler(
+        null,
+        null,
+        null,
+        null,
+        null,
+        validatorSet,
+        true,
+      );
+      handler.startStylesheet(adapt_cssparse.StylesheetFlavor.USER_AGENT);
+      var warnListener = jasmine.createSpy("warn listener");
+      vivliostyle_logging.logger.addListener(
+        vivliostyle_logging.LogLevel.WARN,
+        warnListener,
+      );
+      adapt_task.start(function () {
+        adapt_cssparse
+          .parseStylesheetFromText(
+            '@namespace epub "http://www.idpf.org/2007/ops";\na[epub|type="noteref"]:not(sup > *, :has(> sup)),\na[epub\\:type="noteref"]:not(sup > *, :has(> sup)),\na[role="doc-noteref"]:not(sup > *, :has(> sup)) { font-size: 0.75em; vertical-align: super; line-height: 0; }',
+            handler,
+            null,
+            null,
+            null,
+          )
+          .then(function (result) {
+            expect(result).toBe(true);
+            expect(warnListener).not.toHaveBeenCalled();
+            done();
+          });
+        return adapt_task.newResult(true);
+      });
+    });
     it("should parse validator and space rule", function (done) {
       var validatorSet = new adapt_cssvalid.ValidatorSet();
       validatorSet.initBuiltInValidators();

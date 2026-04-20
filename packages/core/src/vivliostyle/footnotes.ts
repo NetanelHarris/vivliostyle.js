@@ -21,6 +21,7 @@ import * as Asserts from "./asserts";
 import * as Base from "./base";
 import * as Css from "./css";
 import * as PageFloats from "./page-floats";
+import * as SemanticFootnote from "./semantic-footnote";
 import * as Task from "./task";
 import * as Vtree from "./vtree";
 import { Layout } from "./types";
@@ -34,6 +35,7 @@ export class Footnote extends PageFloats.PageFloat {
     flowName: string,
     public readonly footnotePolicy: Css.Ident | null,
     floatMinWrapBlock: Css.Numeric | null,
+    public readonly policyAnchorNode: Node,
   ) {
     super(
       nodePosition,
@@ -48,6 +50,23 @@ export class Footnote extends PageFloats.PageFloat {
   override isAllowedToPrecede(other: PageFloats.PageFloat): boolean {
     return !(other instanceof Footnote);
   }
+}
+
+function getLinePolicyConstraintNode(anchorNode: Node): Node {
+  let element =
+    anchorNode.nodeType === Node.ELEMENT_NODE
+      ? (anchorNode as Element)
+      : anchorNode.parentElement;
+  while (element) {
+    if (
+      /^(p|li|dd|dt|td|th|blockquote)$/i.test(element.localName) &&
+      !element.querySelector("br")
+    ) {
+      return element;
+    }
+    element = element.parentElement;
+  }
+  return anchorNode;
 }
 
 /**
@@ -82,8 +101,16 @@ export class LineFootnotePolicyLayoutConstraint
   constructor(public readonly footnote: Footnote) {}
 
   allowLayout(nodeContext: Vtree.NodeContext): boolean {
-    const nodePosition = nodeContext.toNodePosition();
-    return !Vtree.isSameNodePosition(nodePosition, this.footnote.nodePosition);
+    let sourceNode: Node | null = nodeContext.shadowContext
+      ? nodeContext.shadowContext.owner
+      : nodeContext.sourceNode;
+    while (sourceNode) {
+      if (sourceNode === this.footnote.policyAnchorNode) {
+        return false;
+      }
+      sourceNode = sourceNode.parentNode;
+    }
+    return true;
   }
 }
 
@@ -129,12 +156,22 @@ export class FootnoteLayoutStrategy
 
     const nodePosition = nodeContext.toNodePosition();
     Asserts.assert(pageFloatLayoutContext.flowName);
+    let policyAnchorNode: Node = nodeContext.sourceNode;
+    const shadowOwner = nodeContext.shadowContext?.owner;
+    if (
+      shadowOwner instanceof Element &&
+      SemanticFootnote.isSemanticFootnoteNoterefElement(shadowOwner)
+    ) {
+      policyAnchorNode = shadowOwner;
+    }
+    policyAnchorNode = getLinePolicyConstraintNode(policyAnchorNode);
     const float: PageFloats.PageFloat = new Footnote(
       nodePosition,
       floatReference,
       pageFloatLayoutContext.flowName,
       nodeContext.footnotePolicy,
       nodeContext.floatMinWrapBlock,
+      policyAnchorNode,
     );
     float.insidePageFloatArea = insidePageFloat;
     if (insidePageFloat) {

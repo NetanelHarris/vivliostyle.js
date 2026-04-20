@@ -2870,17 +2870,40 @@ export function parseStylesheetFromText(
   classes: string | null,
   media: string | null,
 ): Task.Result<boolean> {
+  const parserHandler = normalizeParserHandler(handler);
   return Task.handle(
     "parseStylesheetFromText",
     (frame) => {
-      const tok = new CssTokenizer.Tokenizer(text, handler);
-      parseStylesheet(tok, handler, baseURL, classes, media).thenFinish(frame);
+      const tok = new CssTokenizer.Tokenizer(text, parserHandler);
+      parseStylesheet(tok, parserHandler, baseURL, classes, media).thenFinish(
+        frame,
+      );
     },
     (frame, err) => {
       Logging.logger.warn(err, `Failed to parse stylesheet text: ${text}`);
       frame.finish(false);
     },
   );
+}
+
+function normalizeParserHandler(handler: ParserHandler): ParserHandler {
+  if (handler instanceof DispatchParserHandler) {
+    return handler;
+  }
+  if (handler instanceof SlaveParserHandler) {
+    if (handler.owner) {
+      return handler.owner;
+    }
+    // Some parser entry points are passed a top-level slave handler. Wrap it in
+    // a dispatch handler once so selector functions parse through the normal
+    // dispatch path and the slave retains a stable owner reference.
+    const dispatchHandler = new DispatchParserHandler();
+    dispatchHandler.flavor = handler.flavor;
+    dispatchHandler.slave = handler;
+    handler.owner = dispatchHandler;
+    return dispatchHandler;
+  }
+  return handler;
 }
 
 export function parseStylesheetFromURL(

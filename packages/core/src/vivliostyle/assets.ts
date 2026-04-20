@@ -861,6 +861,7 @@ export const UserAgentXml = `
 
 .-vivliostyle-footnote-content {
   float: footnote;
+  --viv-semantic-footnote-content: 1;
 }
 
 .-vivliostyle-table-cell-container {
@@ -1353,10 +1354,13 @@ m|math[display="block"] {
 
 /* CSS GCPM footnotes */
 ::footnote-marker {
-  content: counter(footnote) ". ";
   list-style-position: inside;
 }
-::footnote-call {
+/* Semantic DPUB/EPUB footnotes provide their own default call/marker path. */
+:not(aside[epub|type~="footnote"], aside[epub\:type~="footnote"], aside[role~="doc-footnote"])::footnote-marker {
+  content: counter(footnote) ". ";
+}
+:not(a[epub|type~="noteref"], a[epub\:type~="noteref"], a[role~="doc-noteref"])::footnote-call {
   content: counter(footnote);
   font-size: 0.75em;
   vertical-align: super;
@@ -1365,23 +1369,18 @@ m|math[display="block"] {
 
 /* EPUB/DPUB footnotes */
 
-a[epub|type="noteref"],
-a[epub\:type="noteref"],
-a[role="doc-noteref"] {
+a[epub|type="noteref"]:not(sup > *, :has(> sup)),
+a[epub\:type="noteref"]:not(sup > *, :has(> sup)),
+a[role="doc-noteref"]:not(sup > *, :has(> sup)) {
   font-size: 0.75em;
   vertical-align: super;
   line-height: 0;
 }
 
-sup > a[epub|type="noteref"],
-a[epub|type="noteref"] > sup,
-sup > a[epub\:type="noteref"],
-a[epub\:type="noteref"] > sup,
-sup > a[role="doc-noteref"],
-a[role="doc-noteref"] > sup {
-  font-size: unset;
-  vertical-align: unset;
-  line-height: unset;
+a[epub|type="noteref"][data-vivliostyle-footnote-first-ref],
+a[epub\:type="noteref"][data-vivliostyle-footnote-first-ref],
+a[role="doc-noteref"][data-vivliostyle-footnote-first-ref] {
+  counter-increment: footnote;
 }
 
 a[epub|type="noteref"]:href-epub-type(footnote, aside),
@@ -1609,10 +1608,6 @@ span[data-viv-leader] {
   font-variant-numeric: tabular-nums;
   white-space: pre;
   text-transform: none;
-}
-[style*="--viv-footnote-inline-separator"]::after {
-  content: var(--viv-footnote-inline-separator);
-  white-space: normal;
 }
 [style*="--viv-footnote-white-space"] {
   white-space: var(--viv-footnote-white-space);

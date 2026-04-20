@@ -33,6 +33,7 @@ import * as LayoutHelper from "./layout-helper";
 import * as Logging from "./logging";
 import * as Matchers from "./matchers";
 import * as Plugin from "./plugin";
+import * as SemanticFootnote from "./semantic-footnote";
 import * as Vtree from "./vtree";
 import { CssStyler, Layout } from "./types";
 import { TokenType } from "./css-tokenizer";
@@ -419,7 +420,7 @@ export const SPECIALS = {
 // Persist footnote-call counter values on the call element so footnote-marker
 // can render the same value even if page-based counters reset on the footnote
 // page or during re-layout.
-const FOOTNOTE_COUNTER_ATTR = "data-viv-footnote-counter";
+export const FOOTNOTE_COUNTER_ATTR = "data-viv-footnote-counter";
 function getFootnoteCounterMap(element: Element): Record<string, number[]> {
   const stored = element.getAttribute(FOOTNOTE_COUNTER_ATTR);
   if (!stored) {
@@ -456,6 +457,59 @@ function setFootnoteCounterValues(
   const map = getFootnoteCounterMap(element);
   map[counterName] = values;
   element.setAttribute(FOOTNOTE_COUNTER_ATTR, JSON.stringify(map));
+}
+
+function getDuplicateSemanticFootnoteCounterValues(
+  element: Element,
+  counterName: string,
+): number[] | null {
+  if (
+    !SemanticFootnote.isSemanticFootnoteNoterefElement(element) ||
+    element.hasAttribute(SemanticFootnote.SEMANTIC_FOOTNOTE_FIRST_REF_ATTR)
+  ) {
+    return null;
+  }
+  const storedOnElement = getFootnoteCounterMap(element)[counterName];
+  if (storedOnElement) {
+    return storedOnElement;
+  }
+  const href =
+    element.getAttribute("href") ||
+    element.getAttributeNS(Base.NS.XLINK, "href");
+  if (!href) {
+    return null;
+  }
+  const baseURL = element.baseURI || element.ownerDocument?.baseURI || "";
+  const resolvedHref = Base.resolveReferenceURL(href, baseURL);
+  if (resolvedHref === "#") {
+    return null;
+  }
+  if (resolvedHref.replace(/#.*$/, "") !== baseURL.replace(/#.*$/, "")) {
+    return null;
+  }
+  const hashIndex = resolvedHref.indexOf("#");
+  if (hashIndex < 0 || hashIndex === resolvedHref.length - 1) {
+    return null;
+  }
+  const target = element.ownerDocument?.getElementById(
+    resolvedHref.substring(hashIndex + 1),
+  );
+  if (!(target instanceof Element)) {
+    return null;
+  }
+  const storedOnTarget = getFootnoteCounterMap(target)[counterName];
+  if (storedOnTarget) {
+    setFootnoteCounterValues(element, counterName, storedOnTarget);
+    return storedOnTarget;
+  }
+  return null;
+}
+
+function hasNonTrivialFootnotePseudoContent(
+  pseudoProps: ElementStyle,
+): boolean {
+  const content = getProp(pseudoProps, "content");
+  return !!content && Vtree.nonTrivialContent(content.value);
 }
 
 export function isSpecialName(name: string): boolean {
@@ -2252,6 +2306,13 @@ export class ContentPropVisitor extends Css.FilterVisitor {
         setFootnoteCounterValues(this.element, counterName, values);
       }
     };
+    if (this.pseudoName === "footnote-call" && this.element) {
+      const storedDuplicateSemanticFootnoteCounter =
+        getDuplicateSemanticFootnoteCounterValues(this.element, counterName);
+      if (storedDuplicateSemanticFootnoteCounter) {
+        return formatCounterValues(storedDuplicateSemanticFootnoteCounter);
+      }
+    }
     if (this.pseudoName === "footnote-marker" && this.element) {
       const map = getFootnoteCounterMap(this.element);
       const stored = map[counterName];
@@ -3364,7 +3425,10 @@ export class CascadeInstance {
         resetMap["footnote"] = 0;
       }
     }
-    if (floatVal === Css.ident.footnote) {
+    if (
+      floatVal === Css.ident.footnote &&
+      !this.currentStyle["--viv-semantic-footnote-content"]
+    ) {
       if (!incrementMap) {
         incrementMap = Object.create(null);
       }
@@ -3675,12 +3739,44 @@ export class CascadeInstance {
         }
         const pseudoProps = pseudos[pseudoName];
         if (pseudoProps) {
+          const floatValue = getProp(this.currentStyle, "float")?.value;
+          const isSemanticNoteref =
+            element instanceof Element &&
+            SemanticFootnote.isSemanticFootnoteNoterefElement(element);
+          const isSemanticFootnote =
+            element instanceof Element &&
+            SemanticFootnote.isSemanticFootnoteElement(element);
+          const isSemanticFootnoteContent = !!getProp(
+            this.currentStyle,
+            "--viv-semantic-footnote-content",
+          );
+          const isFootnoteFloat = floatValue === Css.ident.footnote;
+          // Keep explicit empty before/after pseudos on rendered footnotes so
+          // author content:none can suppress the layout-level default separator.
+          const allowFootnoteBeforeAfter =
+            (pseudoName === "before" || pseudoName === "after") &&
+            (isFootnoteFloat ||
+              isSemanticFootnote ||
+              isSemanticFootnoteContent) &&
+            !!pseudoProps["content"];
+          const hasSemanticFootnotePseudoContent =
+            hasNonTrivialFootnotePseudoContent(pseudoProps);
+          const allowSemanticFootnoteCall =
+            pseudoName === "footnote-call" &&
+            isSemanticNoteref &&
+            hasSemanticFootnotePseudoContent;
+          const allowSemanticFootnoteMarker =
+            pseudoName === "footnote-marker" &&
+            (isSemanticFootnote || isSemanticFootnoteContent) &&
+            hasSemanticFootnotePseudoContent;
           if (
             ((pseudoName === "before" || pseudoName === "after") &&
               !(
+                allowFootnoteBeforeAfter ||
                 Vtree.nonTrivialContent(
                   (pseudoProps["content"] as CascadeValue)?.value,
-                ) || this.hasNonTrivialViewConditionalPseudoContent(pseudoProps)
+                ) ||
+                this.hasNonTrivialViewConditionalPseudoContent(pseudoProps)
               )) ||
             (pseudoName === "marker" &&
               !Display.isListItem(
@@ -3688,7 +3784,13 @@ export class CascadeInstance {
               )) ||
             ((pseudoName === "footnote-call" ||
               pseudoName === "footnote-marker") &&
-              getProp(this.currentStyle, "float")?.value !== Css.ident.footnote)
+              floatValue !== Css.ident.footnote &&
+              !allowSemanticFootnoteCall &&
+              !allowSemanticFootnoteMarker) ||
+            ((pseudoName === "footnote-call" ||
+              pseudoName === "footnote-marker") &&
+              isSemanticFootnoteContent &&
+              !hasSemanticFootnotePseudoContent)
           ) {
             delete pseudos[pseudoName];
           } else if (before) {
@@ -3724,6 +3826,15 @@ export class CascadeInstance {
                   element,
                   styler,
                 );
+                // Preserve the original footnote-marker content for semantic
+                // footnotes so vgen can re-evaluate it with the final counter.
+                const footnoteMarkerContent = pseudoProps[
+                  "content"
+                ] as CascadeValue;
+                if (footnoteMarkerContent) {
+                  this.currentStyle["_footnote-marker-content"] =
+                    footnoteMarkerContent;
+                }
                 // Set display: list-item for native ::marker to work
                 this.currentStyle["display"] = new CascadeValue(
                   Css.getName("list-item"),
