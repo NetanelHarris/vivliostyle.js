@@ -33,25 +33,25 @@ yarn test           # Test
 - **Core+Viewer dev**: `yarn dev` at root → auto-opens http://localhost:3000/core/test/files/ (Test cases)
 - **Test files**: Add HTML to `packages/core/test/files/` + entry in `file-list.js` (appears in Test cases)
 
-### Visual Testing with Chrome DevTools MCP
+### Visual Testing with VS Code Integrated Browser
 
-Use Chrome DevTools MCP to automatically verify rendering results:
+Use the VS Code integrated browser for routine rendering checks and bug reproduction. It is usually faster for iterative work because the agent can navigate, inspect the page state, send keys, and capture screenshots with less overhead than Chrome DevTools MCP.
 
 **Single Page Test**:
 
 1. Start dev server: `yarn dev` (background)
-2. Open test in browser: Navigate to viewer URL with test file
-3. Wait for rendering: Use `wait_for` to ensure page is loaded
-4. Capture results: Take screenshot to verify rendering
-5. Check structure: Use `take_snapshot` for text-based page structure
+2. Open test in browser: Navigate to the viewer URL with the test file
+3. Wait for rendering: Use the integrated browser page state tools to confirm the rendered content is present
+4. Capture results: Take a screenshot to verify rendering
+5. Check structure: Use the page snapshot/read tools when a text-based view of the page is useful
 
 **Multi-Page Test**:
 
 1. Navigate to test URL
 2. Take screenshot of first page
-3. Navigate pages: Use `press_key("ArrowDown")` for next page, `press_key("ArrowUp")` for previous
+3. Navigate pages: Send `ArrowDown` for next page and `ArrowUp` for previous
 4. Capture each page to verify pagination
-5. Use `press_key("Home")` / `press_key("End")` to jump to first/last page
+5. Use `Home` / `End` to jump to first/last page
 
 **Bug Fix Workflow**:
 
@@ -61,6 +61,11 @@ Use Chrome DevTools MCP to automatically verify rendering results:
 4. Reload browser page if needed
 5. Take new screenshots and compare with pre-fix state
 6. Iterate until bug is resolved
+
+**When to Use Chrome DevTools MCP Instead**:
+
+- Use Chrome DevTools MCP when you need browser diagnostics that the integrated browser does not expose directly, such as console messages, network inspection, performance traces, Lighthouse audits, heap snapshots, or device and network emulation.
+- For straightforward local rendering verification, prefer the integrated browser and only switch to Chrome DevTools MCP when the bug requires deeper browser-level investigation.
 
 **Test URLs**:
 

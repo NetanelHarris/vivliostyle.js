@@ -1,12 +1,12 @@
 ---
 name: resolve-issue
-description: "Resolve a Vivliostyle.js GitHub issue end-to-end. Use when: reproducing a bug, fixing an issue, creating test case from issue, verifying issue behavior, debugging rendering problems. Fetches issue content, creates an HTML test file, reproduces the bug visually with Chrome DevTools MCP, then guides through code fix and verification."
+description: "Resolve a Vivliostyle.js GitHub issue end-to-end. Use when: reproducing a bug, fixing an issue, creating test case from issue, verifying issue behavior, debugging rendering problems. Fetches issue content, creates an HTML test file, reproduces the bug visually with the VS Code integrated browser, and falls back to Chrome DevTools MCP when DevTools-specific diagnostics are needed."
 argument-hint: "GitHub issue number or URL (e.g. #1879 or https://github.com/vivliostyle/vivliostyle.js/issues/1879)"
 ---
 
 # Resolve a Vivliostyle.js Issue
 
-Fetch a GitHub issue, create a minimal test case, visually confirm the bug, fix the code, and verify the fix — all using the dev server and Chrome DevTools MCP.
+Fetch a GitHub issue, create a minimal test case, visually confirm the bug, fix the code, and verify the fix using the dev server and the VS Code integrated browser. Use Chrome DevTools MCP only when you need DevTools-specific diagnostics.
 
 ## Procedure
 
@@ -46,29 +46,31 @@ Fetch a GitHub issue, create a minimal test case, visually confirm the bug, fix 
 
 ### 5. Visually Reproduce the Bug
 
-Use Chrome DevTools MCP to confirm the issue:
+Use the VS Code integrated browser to confirm the issue:
 
 1. **Navigate to the test file**:
    - URL: `http://localhost:3000/viewer/lib/vivliostyle-viewer-dev.html#src=../../core/test/files/<filename>.html`
    - Do NOT add `&debug=true` (causes flickering during rendering).
 
 2. **Wait for rendering to complete**:
-   - Use `mcp wait_for` with a selector for the rendered content (e.g., `[data-vivliostyle-page-container]`).
+   - Use the integrated browser page-reading tools to confirm the rendered content appears.
+   - If the page needs an explicit wait, use the browser automation tool to wait for the rendered page container.
 
 3. **Capture the current state**:
    - Take a screenshot to see the rendered output.
-   - Use `take_snapshot` for DOM structure if needed.
+   - Use the page snapshot/read tools for a text-based view of the DOM when needed.
 
 4. **For multi-page documents**:
    - Take screenshot of first page.
-   - Use `press_key("ArrowDown")` to navigate to next page, take screenshot.
+   - Send `ArrowDown` to navigate to next page, then take a screenshot.
    - Repeat for all relevant pages.
-   - Use `press_key("Home")` / `press_key("End")` to jump to first/last page.
+   - Use `Home` / `End` to jump to first/last page.
 
 5. **Confirm the bug**:
    - Compare the rendered output against the expected behavior described in the issue.
    - Report what is observed vs what is expected.
    - If the bug is NOT reproduced, check whether the issue requires specific conditions (viewport size, multi-column, specific CSS features) and adjust the test case.
+   - If the issue needs browser-level diagnostics such as console logs, network requests, performance traces, or device emulation, switch to Chrome DevTools MCP for that part of the investigation.
 
 ### 6. Report Reproduction Results
 
@@ -104,10 +106,11 @@ Summarize:
 ### 9. Verify the Fix Visually
 
 1. Reload the test page in the browser (or wait for auto-reload).
-2. Take new screenshots with Chrome DevTools MCP.
+2. Take new screenshots with the integrated browser.
 3. Compare with the pre-fix screenshots from Step 5.
 4. Confirm the expected behavior now matches.
 5. If multi-page, check all pages again.
+6. If behavior is still unclear, use Chrome DevTools MCP for deeper diagnostics rather than as the default verification path.
 
 ### 10. Check for Regressions
 
@@ -149,3 +152,4 @@ yarn test:layout-regression --actual-viewer dev --baseline-viewer canary
 - The dev server (`yarn dev`) auto-rebuilds on source changes and auto-reloads the viewer. Once it's running, any code fix will be reflected by reloading the page.
 - Test files in `packages/core/test/files/` appear in the test case list at `http://localhost:3000/core/test/files/`.
 - If the issue references an EPUB or external URL, you can also test directly via `http://localhost:3000/viewer/lib/vivliostyle-viewer-dev.html#src=<URL>` without creating a local file.
+- Prefer the integrated browser for normal reproduction and verification loops. Use Chrome DevTools MCP when you need capabilities closer to DevTools itself, such as console, network, performance, Lighthouse, memory, or advanced emulation.
