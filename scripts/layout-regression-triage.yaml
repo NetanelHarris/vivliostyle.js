@@ -1,3 +1,27 @@
+- category: General
+  title: "CSS Nesting basic (Issue #1032)"
+  file: css-nesting-basic.html
+  decision: expected  # regression / expected / skip
+  notes: ""
+  approvedViewer: git-feat-css-nesting  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/css-nesting-basic.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle.org/viewer/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/css-nesting-basic.html&zoom=1&spread=false
+- category: General
+  title: "CSS Nesting conditionals (Issue #1032)"
+  file: css-nesting-conditionals.html
+  decision: expected  # regression / expected / skip
+  notes: ""
+  approvedViewer: git-feat-css-nesting  # viewer spec: git-<branch>, v2.35.0, canary, stable, URL...
+  actualLabel: canary
+  actualUrl: >-
+    https://vivliostyle.vercel.app/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/css-nesting-conditionals.html&zoom=1&spread=false
+  baselineLabel: stable
+  baselineUrl: >-
+    https://vivliostyle.org/viewer/#src=https://raw.githubusercontent.com/vivliostyle/vivliostyle.js/master/packages/core/test/files/css-nesting-conditionals.html&zoom=1&spread=false
 - category: Footnotes
   title: "DPUB footnote-display (Issue #1884)"
   file: footnotes/dpub-footnote-display.html
