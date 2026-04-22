@@ -31,6 +31,7 @@ import * as Counters from "./counters";
 import * as CounterStyle from "./counter-style";
 import * as Css from "./css";
 import * as CssCascade from "./css-cascade";
+import { replaceScopeAmpersands } from "./css-nesting";
 import * as CssParser from "./css-parser";
 import * as CssProp from "./css-prop";
 import * as CssStyler from "./css-styler";
@@ -625,8 +626,18 @@ export class StyleInstance
    * @returns true if selectorText is supported selector
    */
   private evalSupportsSelector(selectorText: string): boolean {
-    const sph = new StyleParserHandler(null);
-    const tokenizer = new CssTokenizer.Tokenizer(selectorText + "{}", sph);
+    class SilentStyleParserHandler extends StyleParserHandler {
+      override errorMsg(
+        ..._args: Parameters<StyleParserHandler["errorMsg"]>
+      ): void {}
+    }
+
+    const sph = new SilentStyleParserHandler(null);
+    const normalizedSelectorText = replaceScopeAmpersands(selectorText);
+    const tokenizer = new CssTokenizer.Tokenizer(
+      normalizedSelectorText + "{}",
+      sph,
+    );
     const parser = new CssParser.Parser(
       CssParser.actionsBase,
       tokenizer,

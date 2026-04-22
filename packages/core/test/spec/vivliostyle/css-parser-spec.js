@@ -16,6 +16,7 @@
  */
 
 import * as adapt_cssparse from "../../../src/vivliostyle/css-parser";
+import * as adapt_cssnesting from "../../../src/vivliostyle/css-nesting";
 import * as adapt_csstok from "../../../src/vivliostyle/css-tokenizer";
 import * as adapt_task from "../../../src/vivliostyle/task";
 
@@ -28,6 +29,7 @@ describe("css-parser", function () {
       spyOn(handler, "pseudoclassSelector");
       spyOn(handler, "startFuncWithSelector");
       spyOn(handler, "endFuncWithSelector");
+      spyOn(handler, "pushSelectorText");
       spyOn(handler, "pseudoelementSelector");
     });
 
@@ -45,6 +47,168 @@ describe("css-parser", function () {
         return adapt_task.newResult(true);
       });
     }
+
+    describe("css nesting", function () {
+      it("expands nested selectors using :is() semantics", function () {
+        expect(
+          adapt_cssnesting.expandNesting(
+            ".foo, #bar { > .baz, &.qux { color: red; } }",
+          ),
+        ).toBe(":is(.foo, #bar) > .baz, :is(.foo, #bar).qux { color: red; }");
+      });
+
+      it("keeps mixed declarations ordered around nested rules", function () {
+        expect(
+          adapt_cssnesting.expandNesting(
+            ".foo, .foo::before { color: black; @media screen { color: white; } background: silver; }",
+          ),
+        ).toBe(
+          ".foo, .foo::before { color: black; }\n@media screen { .foo, .foo::before { color: white; } }\n.foo, .foo::before { background: silver; }",
+        );
+      });
+
+      it("wraps complex parent selectors with :is() when replacing &", function () {
+        expect(
+          adapt_cssnesting.expandNesting(
+            "span > b { .test-4 section > & { color: red; } }",
+          ),
+        ).toBe(".test-4 section > :is(span > b) { color: red; }");
+      });
+
+      it("wraps compound-position ampersands with :is()", function () {
+        expect(
+          adapt_cssnesting.expandNesting(
+            "div.test-14 { div& { color: green; } }",
+          ),
+        ).toBe("div:is(div.test-14) { color: green; }");
+      });
+
+      it("does not turn nested :has() replacements into matching selectors", function () {
+        expect(
+          adapt_cssnesting.expandNesting(
+            "li:has(strong) { :has(> &) { background: red; } }",
+          ),
+        ).toBe(":has(> :where(:not(*))) { background: red; }");
+      });
+
+      it("parses nested rules without reporting syntax errors", function (done) {
+        spyOn(handler, "property");
+        parse(done, ".foo { .bar { color: red; } }", function () {
+          expect(handler.error).not.toHaveBeenCalled();
+          expect(handler.property).toHaveBeenCalled();
+          expect(handler.property.calls.mostRecent().args[0]).toBe("color");
+          expect(handler.property.calls.mostRecent().args[2]).toBe(false);
+        });
+      });
+
+      it("parses forgiving nested selectors with unknown functions", function (done) {
+        parse(
+          done,
+          ".does-not-exist { :is(.test-2, :unknown(div,&)) { color: green; } }",
+          function () {
+            expect(handler.error).not.toHaveBeenCalled();
+          },
+        );
+      });
+
+      it("captures recovered :has selector text after invalid selector items", function (done) {
+        parse(done, ".foo:has(!, > .bar) {}", function () {
+          var selectorTexts = handler.pushSelectorText.calls
+            .allArgs()
+            .map(function (args) {
+              return args[0].trim();
+            });
+          expect(selectorTexts).toContain("> .bar");
+          expect(
+            selectorTexts.some(function (text) {
+              return text.indexOf("!") >= 0;
+            }),
+          ).toBe(false);
+        });
+      });
+
+      it("preserves invalid forgiving items during expansion", function () {
+        expect(
+          adapt_cssnesting.expandNesting(
+            ".does-not-exist { :is(.test-1, !&) { color: green; } }",
+          ),
+        ).toBe(":is(.test-1, !:is(.does-not-exist)) { color: green; }");
+      });
+
+      it("does not replace escaped ampersands in nested selectors", function () {
+        expect(
+          adapt_cssnesting.expandNesting(
+            ".foo { .bar\\&baz { color: green; } }",
+          ),
+        ).toBe(":is(.foo) .bar\\&baz { color: green; }");
+      });
+
+      it("does not split selector lists on escaped commas", function () {
+        expect(
+          adapt_cssnesting.expandNesting(
+            ".foo { .bar\\,.baz { color: green; } }",
+          ),
+        ).toBe(":is(.foo) .bar\\,.baz { color: green; }");
+      });
+
+      it("returns declaration-only stylesheets unchanged", function () {
+        expect(adapt_cssnesting.expandNesting("ul { background: green }")).toBe(
+          "ul { background: green }",
+        );
+      });
+
+      it("returns simple non-nested rules unchanged", function () {
+        expect(adapt_cssnesting.expandNesting("h1 { color: blue }")).toBe(
+          "h1 { color: blue }",
+        );
+      });
+
+      it("preserves ideographic spaces inside string literals during expansion", function () {
+        expect(
+          adapt_cssnesting.expandNesting(
+            '.toc::after { content: target-text(attr(href url), before) "　" target-text(attr(href url), content); }',
+          ),
+        ).toBe(
+          '.toc::after { content: target-text(attr(href url), before) "　" target-text(attr(href url), content); }',
+        );
+      });
+
+      it("preserves ASCII whitespace inside string literals during expansion", function () {
+        expect(
+          adapt_cssnesting.expandNesting(
+            '.label::after { content: "  spaced   text  "; }',
+          ),
+        ).toBe('.label::after { content: "  spaced   text  "; }');
+      });
+
+      it("still expands nested rules with semicolonless declarations", function () {
+        expect(
+          adapt_cssnesting.expandNesting(
+            ".foo { color: blue; .bar { background: green } }",
+          ),
+        ).toBe(".foo { color: blue; }\n:is(.foo) .bar { background: green; }");
+      });
+
+      it("parses semicolonless declarations after preprocessing", function (done) {
+        spyOn(handler, "property");
+        parse(done, "ul { background: green }", function () {
+          expect(handler.error).not.toHaveBeenCalled();
+          expect(handler.property).toHaveBeenCalled();
+          expect(handler.property.calls.mostRecent().args[0]).toBe(
+            "background",
+          );
+        });
+      });
+
+      it("parses simple semicolonless declarations after preprocessing", function (done) {
+        spyOn(handler, "property");
+        parse(done, "h1 { color: blue }", function () {
+          expect(handler.error).not.toHaveBeenCalled();
+          expect(handler.property).toHaveBeenCalled();
+          expect(handler.property.calls.mostRecent().args[0]).toBe("color");
+        });
+      });
+    });
 
     describe("pseudoclass", function () {
       describe(":lang", function () {

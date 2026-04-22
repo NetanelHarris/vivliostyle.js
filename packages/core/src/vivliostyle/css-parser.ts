@@ -20,6 +20,7 @@
  */
 import * as Base from "./base";
 import * as Css from "./css";
+import { expandNesting } from "./css-nesting";
 import * as CssTokenizer from "./css-tokenizer";
 import * as Exprs from "./exprs";
 import * as Logging from "./logging";
@@ -763,6 +764,7 @@ export const OP_MEDIA_NOT: number = TokenType.LAST + 3;
   actionsErrorDecl[TokenType.C_PAR] = Action.ERROR_POP;
   actionsErrorDecl[TokenType.SEMICOL] = Action.ERROR_SEMICOL;
   actionsErrorSelector[TokenType.EOF] = Action.DONE;
+  actionsErrorSelector[TokenType.COMMA] = Action.ERROR_SEMICOL;
   actionsErrorSelector[TokenType.O_BRC] = Action.ERROR_PUSH;
   actionsErrorSelector[TokenType.C_BRC] = Action.ERROR_POP;
   actionsErrorSelector[TokenType.O_BRK] = Action.ERROR_PUSH;
@@ -1198,6 +1200,28 @@ export class Parser {
           break;
         default:
           return arr;
+      }
+      this.tokenizer.consume();
+    }
+  }
+
+  skipPseudoFunctionContents(): boolean {
+    let depth = 0;
+    while (true) {
+      const token = this.tokenizer.token();
+      switch (token.type) {
+        case TokenType.EOF:
+          return false;
+        case TokenType.C_PAR:
+          if (depth === 0) {
+            return true;
+          }
+          depth--;
+          break;
+        case TokenType.O_PAR:
+        case TokenType.FUNC:
+          depth++;
+          break;
       }
       this.tokenizer.consume();
     }
@@ -1777,8 +1801,10 @@ export class Parser {
                     break;
                   }
                 default:
-                  // TODO
-                  params = this.readPseudoParams();
+                  params = [];
+                  if (!this.skipPseudoFunctionContents()) {
+                    break pseudoclassType;
+                  }
               }
               token = tokenizer.token();
               if (token.type == TokenType.C_PAR) {
@@ -2668,6 +2694,17 @@ export class Parser {
           tokenizer.consume();
           continue;
         case Action.ERROR_SEMICOL:
+          if (
+            parsingFunctionParam &&
+            this.errorBrackets.length == 0 &&
+            token.type == TokenType.COMMA
+          ) {
+            handler.nextSelector();
+            this.actions = actionsSelectorStart;
+            selectorStartPosition = token.position + 1;
+            tokenizer.consume();
+            continue;
+          }
           if (this.errorBrackets.length == 0) {
             this.actions = actionsBase;
           }
@@ -2684,6 +2721,57 @@ export class Parser {
             return false;
           }
           if (parsingFunctionParam) {
+            if (this.actions === actionsErrorSelector) {
+              switch (token.type) {
+                case TokenType.COMMA:
+                  if (this.errorBrackets.length == 0) {
+                    handler.nextSelector();
+                    selectorStartPosition = token.position + 1;
+                    this.actions = actionsSelectorStart;
+                  }
+                  tokenizer.consume();
+                  continue;
+                case TokenType.C_PAR:
+                  if (this.errorBrackets.length == 0) {
+                    handler.endFuncWithSelector();
+                    tokenizer.consume();
+                    return true;
+                  }
+                  if (
+                    this.errorBrackets.length > 0 &&
+                    this.errorBrackets[this.errorBrackets.length - 1] ==
+                      token.type
+                  ) {
+                    this.errorBrackets.pop();
+                  }
+                  tokenizer.consume();
+                  continue;
+                case TokenType.O_BRC:
+                case TokenType.O_BRK:
+                case TokenType.O_PAR:
+                  this.errorBrackets.push(token.type + 1);
+                  tokenizer.consume();
+                  continue;
+                case TokenType.FUNC:
+                  this.errorBrackets.push(TokenType.C_PAR);
+                  tokenizer.consume();
+                  continue;
+                case TokenType.C_BRC:
+                case TokenType.C_BRK:
+                  if (
+                    this.errorBrackets.length > 0 &&
+                    this.errorBrackets[this.errorBrackets.length - 1] ==
+                      token.type
+                  ) {
+                    this.errorBrackets.pop();
+                  }
+                  tokenizer.consume();
+                  continue;
+                default:
+                  tokenizer.consume();
+                  continue;
+              }
+            }
             switch (token.type) {
               case TokenType.COMMA:
               case TokenType.C_PAR:
@@ -2800,6 +2888,33 @@ export class ErrorHandler extends ParserHandler {
 }
 
 export function parseStylesheet(
+  tokenizer: CssTokenizer.Tokenizer,
+  handler: ParserHandler,
+  baseURL: string,
+  classes: string | null,
+  media: string | null,
+): Task.Result<boolean> {
+  const parserHandler = normalizeParserHandler(handler);
+  const expandedText = expandNesting(tokenizer.input);
+  if (expandedText !== tokenizer.input) {
+    return parseStylesheetInternal(
+      new CssTokenizer.Tokenizer(expandedText, parserHandler),
+      parserHandler,
+      baseURL,
+      classes,
+      media,
+    );
+  }
+  return parseStylesheetInternal(
+    tokenizer,
+    parserHandler,
+    baseURL,
+    classes,
+    media,
+  );
+}
+
+function parseStylesheetInternal(
   tokenizer: CssTokenizer.Tokenizer,
   handler: ParserHandler,
   baseURL: string,

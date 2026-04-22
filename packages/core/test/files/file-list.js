@@ -71,6 +71,14 @@ module.exports = [
       },
       { file: "nth_selectors.html", title: "nth selectors" },
       { file: "empty_selector.html", title: "empty selector" },
+      {
+        file: "css-nesting-basic.html",
+        title: "CSS Nesting basic (Issue #1032)",
+      },
+      {
+        file: "css-nesting-conditionals.html",
+        title: "CSS Nesting conditionals (Issue #1032)",
+      },
       { file: "ui_state_selectors.html", title: "UI state selectors" },
       { file: "not-pseudo-selector.html", title: ":not pseudo selector" },
       { file: "math-sample.html", title: "MathJax" },

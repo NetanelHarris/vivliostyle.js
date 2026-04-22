@@ -22,6 +22,56 @@ import * as adapt_task from "../../../src/vivliostyle/task";
 import * as vivliostyle_logging from "../../../src/vivliostyle/logging";
 
 describe("css-validator", function () {
+  function parseCascade(cssText, done, callback) {
+    var handler = new adapt_csscasc.CascadeParserHandler(
+      null,
+      null,
+      null,
+      null,
+      null,
+      adapt_cssvalid.baseValidatorSet(),
+      true,
+    );
+    handler.startStylesheet(adapt_cssparse.StylesheetFlavor.AUTHOR);
+    adapt_task.start(function () {
+      adapt_cssparse
+        .parseStylesheetFromText(cssText, handler, null, null, null)
+        .then(function (result) {
+          expect(result).toBe(true);
+          callback(handler.finish());
+          done();
+        });
+      return adapt_task.newResult(true);
+    });
+  }
+
+  describe("background shorthand regression", function () {
+    it("keeps color in cascade for a semicolonless declaration", function (done) {
+      parseCascade("h1 { color: blue }", done, function (cascade) {
+        expect(cascade.tags.h1).toBeDefined();
+        expect(cascade.tags.h1.style.color).toBeDefined();
+      });
+    });
+
+    it("keeps background-color in cascade for a semicolonless declaration", function (done) {
+      parseCascade("ul { background: green }", done, function (cascade) {
+        expect(cascade.tags.ul).toBeDefined();
+        expect(cascade.tags.ul.style["background-color"]).toBeDefined();
+      });
+    });
+
+    it("keeps background-color in cascade when semicolonless declarations precede nested rules", function (done) {
+      parseCascade(
+        "ul { background: green } li:has(strong) { display: none; :has(> &) { background: red; } }",
+        done,
+        function (cascade) {
+          expect(cascade.tags.ul).toBeDefined();
+          expect(cascade.tags.ul.style["background-color"]).toBeDefined();
+        },
+      );
+    });
+  });
+
   describe("ValidatorSet", function () {
     it("should parse simple validator and simple rule", function (done) {
       var validatorSet = new adapt_cssvalid.ValidatorSet();
