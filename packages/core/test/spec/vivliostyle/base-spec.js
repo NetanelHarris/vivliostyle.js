@@ -40,6 +40,31 @@ describe("base", function () {
     });
   });
 
+  describe("convertSpecialURL", function () {
+    it("converts wpt.live URLs to raw GitHub URLs", function () {
+      expect(
+        module.convertSpecialURL(
+          "https://wpt.live/css/css-fonts/font-face-src-list.html",
+        ),
+      ).toBe(
+        "https://raw.githubusercontent.com/web-platform-tests/wpt/master/css/css-fonts/font-face-src-list.html",
+      );
+    });
+  });
+
+  describe("resolveURL", function () {
+    it("keeps repo-root absolute paths within the WPT raw GitHub mirror", function () {
+      expect(
+        module.resolveURL(
+          "/fonts/Lato-Medium.ttf",
+          "https://raw.githubusercontent.com/web-platform-tests/wpt/master/css/css-fonts/font-face-src-list.html",
+        ),
+      ).toBe(
+        "https://raw.githubusercontent.com/web-platform-tests/wpt/master/fonts/Lato-Medium.ttf",
+      );
+    });
+  });
+
   describe("escapeCharToHex", function () {
     it("escape the first character to a 4-digit hex code and add the specified prefix", function () {
       expect(module.escapeCharToHex("a", ":")).toBe(":0061");

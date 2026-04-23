@@ -15,6 +15,18 @@ import prettier from "prettier";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
+const defaultLayoutRegressionOutDir = path.join(
+  repoRoot,
+  "artifacts",
+  "layout-regression",
+);
+const defaultReftestOutDir = path.join(repoRoot, "artifacts", "wpt-reftest");
+const defaultReftestDiffOutDir = path.join(
+  repoRoot,
+  "artifacts",
+  "reftest-diff",
+);
+const defaultWptManifestPath = path.join(defaultReftestOutDir, "MANIFEST.json");
 const fileListPath = path.join(
   repoRoot,
   "packages/core/test/files/file-list.js",
@@ -26,9 +38,11 @@ const testFilesRootPrefix = "packages/core/test/files/";
 // occurrence of a repeated parameter, so a user-supplied zoom or spread value
 // will win and these fallbacks will be ignored for that parameter.
 const fallbackViewerParams = "&zoom=1&spread=false";
+const wptReftestViewerParams = "&pixelRatio=0";
 
 const defaults = {
-  outDir: path.join(repoRoot, "artifacts", "layout-regression"),
+  mode: "version-diff",
+  outDir: "",
   timeoutSec: 30,
   maxDiffRatio: 0.00002,
   pixelThreshold: 0.1,
@@ -46,6 +60,10 @@ const defaults = {
   actualViewerParams: "",
   baselineViewerParams: "",
   testUrls: [],
+  refUrls: [],
+  wptManifestPath: defaultWptManifestPath,
+  wptBaseUrl: "https://wpt.live/",
+  wptPathPrefixes: [],
 };
 
 function normalizeCase(value) {
@@ -60,6 +78,157 @@ function normalizeTestFilePath(value) {
     .replace(/\\/g, "/")
     .replace(/^\.\//, "")
     .replace(new RegExp(`^${testFilesRootPrefix}`), "");
+}
+
+function normalizeWptPath(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .replace(/^\//, "");
+}
+
+function normalizeManualTitle(value) {
+  return String(value || "").trim();
+}
+
+function normalizeBaseUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+  return raw.endsWith("/") ? raw : `${raw}/`;
+}
+
+function normalizePageRanges(value) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const ranges = value
+    .filter(Array.isArray)
+    .map((range) => range.slice(0, 2))
+    .filter((range) => range.length > 0);
+  return ranges.length > 0 ? ranges : null;
+}
+
+function normalizeNumberRange(value) {
+  if (Array.isArray(value)) {
+    const range = value.slice(0, 2);
+    if (range.length === 0) {
+      return null;
+    }
+    if (range.length === 1) {
+      range[1] = range[0];
+    }
+    if (!Number.isFinite(range[0]) || !Number.isFinite(range[1])) {
+      return null;
+    }
+    return range;
+  }
+
+  return Number.isFinite(value) ? [value, value] : null;
+}
+
+function normalizeFuzzyTolerance(value) {
+  if (!Array.isArray(value) || value.length < 2) {
+    return null;
+  }
+
+  const maxDifference = normalizeNumberRange(value[0]);
+  const totalPixels = normalizeNumberRange(value[1]);
+  if (!maxDifference || !totalPixels) {
+    return null;
+  }
+
+  return {
+    maxDifference,
+    totalPixels,
+  };
+}
+
+function fuzzyReferenceKey(referenceFile, relation = "") {
+  return `${normalizeWptPath(referenceFile)}\x00${String(relation || "").trim()}`;
+}
+
+function normalizeWptFuzzyKey(testPath, rawKey) {
+  if (rawKey == null) {
+    return null;
+  }
+
+  if (typeof rawKey === "string") {
+    const referenceFile = normalizeWptPath(rawKey);
+    return referenceFile ? { referenceFile, relation: "" } : undefined;
+  }
+
+  if (!Array.isArray(rawKey)) {
+    return undefined;
+  }
+
+  const [rawTestPath, rawReferencePath, rawRelation] = rawKey;
+  const normalizedTestPath = normalizeWptPath(rawTestPath);
+  if (normalizedTestPath && normalizedTestPath !== testPath) {
+    return undefined;
+  }
+
+  const referenceFile = normalizeWptPath(rawReferencePath);
+  if (!referenceFile) {
+    return undefined;
+  }
+
+  return {
+    referenceFile,
+    relation: String(rawRelation || "").trim(),
+  };
+}
+
+function normalizeWptFuzzyMetadata(testPath, value) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const byReference = new Map();
+  let defaultFuzzy = null;
+
+  for (const entry of value) {
+    if (!Array.isArray(entry) || entry.length < 2) {
+      continue;
+    }
+
+    const fuzzy = normalizeFuzzyTolerance(entry[1]);
+    if (!fuzzy) {
+      continue;
+    }
+
+    const key = normalizeWptFuzzyKey(testPath, entry[0]);
+    if (key === null) {
+      defaultFuzzy = fuzzy;
+      continue;
+    }
+    if (!key) {
+      continue;
+    }
+
+    byReference.set(fuzzyReferenceKey(key.referenceFile, key.relation), fuzzy);
+  }
+
+  if (!defaultFuzzy && byReference.size === 0) {
+    return null;
+  }
+
+  return { defaultFuzzy, byReference };
+}
+
+function getWptFuzzyTolerance(fuzzyMetadata, referenceFile, relation) {
+  if (!fuzzyMetadata) {
+    return null;
+  }
+
+  return (
+    fuzzyMetadata.byReference.get(fuzzyReferenceKey(referenceFile, relation)) ||
+    fuzzyMetadata.byReference.get(fuzzyReferenceKey(referenceFile)) ||
+    fuzzyMetadata.defaultFuzzy ||
+    null
+  );
 }
 
 function getTestFilesGitRef() {
@@ -122,10 +291,15 @@ function parseArgs(argv) {
   let actualViewerSpec = null;
   let baselineLabelSet = false;
   let actualLabelSet = false;
+  let baselineViewerSet = false;
+  let actualViewerSet = false;
+  let outDirSet = false;
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--category") {
+    if (a === "--mode") {
+      opts.mode = String(argv[++i] || "").trim();
+    } else if (a === "--category") {
       opts.categories.push(argv[++i]);
     } else if (a === "--title-includes") {
       opts.titleIncludes.push(argv[++i]);
@@ -135,6 +309,7 @@ function parseArgs(argv) {
       opts.limit = Number(argv[++i]);
     } else if (a === "--out-dir") {
       opts.outDir = path.resolve(argv[++i]);
+      outDirSet = true;
     } else if (a === "--timeout") {
       opts.timeoutSec = Number(argv[++i]);
     } else if (a === "--max-diff-ratio") {
@@ -156,8 +331,10 @@ function parseArgs(argv) {
       opts.exportHtml = true;
     } else if (a === "--baseline-viewer") {
       baselineViewerSpec = argv[++i];
+      baselineViewerSet = true;
     } else if (a === "--actual-viewer") {
       actualViewerSpec = argv[++i];
+      actualViewerSet = true;
     } else if (a === "--baseline-label") {
       opts.baselineLabel = argv[++i];
       baselineLabelSet = true;
@@ -172,6 +349,14 @@ function parseArgs(argv) {
       opts.actualViewerParams = argv[++i] ?? "";
     } else if (a === "--test-url") {
       opts.testUrls.push(argv[++i]);
+    } else if (a === "--ref-url") {
+      opts.refUrls.push(argv[++i]);
+    } else if (a === "--wpt-manifest" || a === "--manifest") {
+      opts.wptManifestPath = path.resolve(argv[++i]);
+    } else if (a === "--wpt-base-url") {
+      opts.wptBaseUrl = String(argv[++i] ?? "").trim();
+    } else if (a === "--wpt-path-prefix") {
+      opts.wptPathPrefixes.push(argv[++i]);
     } else if (a === "--help" || a === "-h") {
       printHelpAndExit(0);
     } else {
@@ -213,8 +398,95 @@ function parseArgs(argv) {
     throw new Error("--concurrency must be a positive integer");
   }
   opts.concurrency = Math.floor(opts.concurrency);
-  if (!opts.baselineViewer || !opts.actualViewer) {
+
+  if (opts.mode === "wpt-reftest") {
+    opts.mode = "reftest";
+  }
+
+  if (
+    opts.mode !== "version-diff" &&
+    opts.mode !== "reftest" &&
+    opts.mode !== "reftest-diff"
+  ) {
+    throw new Error(
+      "--mode must be either 'version-diff', 'reftest', or 'reftest-diff'",
+    );
+  }
+
+  if (!outDirSet) {
+    opts.outDir =
+      opts.mode === "reftest"
+        ? defaultReftestOutDir
+        : opts.mode === "reftest-diff"
+          ? defaultReftestDiffOutDir
+          : defaultLayoutRegressionOutDir;
+  }
+
+  if (
+    opts.mode === "version-diff" &&
+    (!opts.baselineViewer || !opts.actualViewer)
+  ) {
     throw new Error("--baseline-viewer and --actual-viewer are required");
+  }
+
+  if (opts.mode === "version-diff" && opts.refUrls.length > 0) {
+    throw new Error(
+      "--ref-url can only be used in reftest or reftest-diff mode",
+    );
+  }
+
+  if (opts.mode === "reftest" || opts.mode === "reftest-diff") {
+    if (!opts.actualViewer) {
+      throw new Error(`--actual-viewer is required in ${opts.mode} mode`);
+    }
+    const rawWptBaseUrl = String(opts.wptBaseUrl ?? "").trim();
+    if (!rawWptBaseUrl) {
+      throw new Error(
+        "Invalid value for --wpt-base-url: expected a non-empty absolute URL",
+      );
+    }
+    try {
+      new URL(rawWptBaseUrl);
+    } catch {
+      throw new Error(
+        `Invalid value for --wpt-base-url: expected a valid absolute URL, got ${JSON.stringify(rawWptBaseUrl)}`,
+      );
+    }
+    opts.wptBaseUrl = normalizeBaseUrl(rawWptBaseUrl);
+    const usesManualPairs = opts.testUrls.length > 0 || opts.refUrls.length > 0;
+    if (opts.testUrls.length !== opts.refUrls.length) {
+      throw new Error(
+        `${opts.mode} mode requires the same number of --test-url and --ref-url values`,
+      );
+    }
+    if (!usesManualPairs && !opts.wptManifestPath) {
+      throw new Error(
+        `--wpt-manifest is required in ${opts.mode} mode when --test-url/--ref-url are not provided`,
+      );
+    }
+    if (!usesManualPairs && !fs.existsSync(opts.wptManifestPath)) {
+      throw new Error(
+        `WPT manifest not found at ${opts.wptManifestPath}. Run 'yarn download:wpt-manifest' or pass --wpt-manifest.`,
+      );
+    }
+    if (
+      opts.mode === "reftest" &&
+      baselineViewerSet &&
+      opts.baselineViewer !== opts.actualViewer
+    ) {
+      throw new Error(
+        "reftest mode currently compares test and reference with the same viewer; omit --baseline-viewer or set it equal to --actual-viewer",
+      );
+    }
+    if (opts.mode === "reftest") {
+      opts.baselineViewer = opts.actualViewer;
+      if (!actualLabelSet) {
+        opts.actualLabel = "test";
+      }
+      if (!baselineLabelSet) {
+        opts.baselineLabel = "reference";
+      }
+    }
   }
 
   return opts;
@@ -228,6 +500,7 @@ Usage:
   yarn test:layout-regression [options]
 
 Options:
+  --mode <name>              version-diff (default), reftest, or reftest-diff
   --category <name>          Run only this category (repeatable, case-insensitive)
   --title-includes <text>    Run entries whose title includes text (repeatable, case-insensitive)
   --file <path>              Run entries by file path relative to packages/core/test/files/
@@ -252,6 +525,10 @@ Options:
   --actual-viewer-params <s> Extra hash params only for actual side
   --baseline-viewer-params <s> Extra hash params only for baseline side
   --test-url <url>           Additional test URL to compare (repeatable)
+  --ref-url <url>            Reference URL to compare with the matching --test-url (repeatable)
+  --wpt-manifest <path>      WPT MANIFEST.json path (default: artifacts/wpt-reftest/MANIFEST.json)
+  --wpt-base-url <url>       Base URL for WPT tests (default: https://wpt.live/)
+  --wpt-path-prefix <path>   Restrict WPT paths by prefix (repeatable), e.g. css/css-break/
   -h, --help                 Show this help
 `;
   process.stdout.write(msg);
@@ -456,6 +733,12 @@ function buildViewerUrl(viewerUrl, entry, extraParams, testFileBaseUrl) {
   return `${normalizedViewer}${params.parameterOnline}`;
 }
 
+function buildPrimarySourceUrl(entry, testFileBaseUrl) {
+  const primaryFile = Array.isArray(entry.file) ? entry.file[0] : entry.file;
+  const normalizedFile = normalizeTestFilePath(primaryFile);
+  return normalizedFile ? `${testFileBaseUrl}${normalizedFile}` : null;
+}
+
 function buildViewerUrlForTestUrl(viewerUrl, testUrl, extraParams) {
   const params = buildViewerParamsForTestUrl(testUrl, extraParams);
   if (!params) {
@@ -470,7 +753,529 @@ function buildViewerUrlForTestUrl(viewerUrl, testUrl, extraParams) {
   return `${normalizedViewer}${params.parameterOnline}`;
 }
 
+function isManifestLeaf(value) {
+  return (
+    Array.isArray(value) &&
+    value.length >= 2 &&
+    typeof value[0] === "string" &&
+    Array.isArray(value[1])
+  );
+}
+
+function collectManifestLeaves(tree, pathParts = [], rows = []) {
+  if (!tree || typeof tree !== "object") {
+    return rows;
+  }
+  for (const [key, value] of Object.entries(tree)) {
+    const nextPath = [...pathParts, key];
+    if (isManifestLeaf(value)) {
+      rows.push({ path: nextPath.join("/"), value });
+      continue;
+    }
+    if (value && typeof value === "object") {
+      collectManifestLeaves(value, nextPath, rows);
+    }
+  }
+  return rows;
+}
+
+function loadWptReftestEntries(manifestPath, { includeManual = false } = {}) {
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  const reftests = collectManifestLeaves(manifest?.items?.reftest || {}).map(
+    (entry) => ({ ...entry, testType: "reftest" }),
+  );
+  const printReftests = collectManifestLeaves(
+    manifest?.items?.["print-reftest"] || {},
+  ).map((entry) => ({ ...entry, testType: "print-reftest" }));
+  const manualTests = includeManual
+    ? collectManifestLeaves(manifest?.items?.manual || {}).map((entry) => ({
+        ...entry,
+        testType: "manual",
+      }))
+    : [];
+  return [...reftests, ...printReftests, ...manualTests];
+}
+
+function joinUrl(baseUrl, relativePath) {
+  return new URL(normalizeWptPath(relativePath), normalizeBaseUrl(baseUrl))
+    .href;
+}
+
+function collectManualReftestTargets(opts) {
+  const sharedExtra = normalizeExtraParams(opts.extraViewerParams);
+  const actualExtra = `${sharedExtra}${normalizeExtraParams(opts.actualViewerParams)}`;
+  const baselineExtra = `${sharedExtra}${normalizeExtraParams(opts.baselineViewerParams)}`;
+  const titleFilters = opts.titleIncludes
+    .map((v) => normalizeCase(v))
+    .filter(Boolean);
+  const fileFilters = opts.files.map((v) => normalizeCase(v)).filter(Boolean);
+  const targets = [];
+
+  for (let i = 0; i < opts.testUrls.length; i++) {
+    const testUrl = String(opts.testUrls[i] || "").trim();
+    const refUrl = String(opts.refUrls[i] || "").trim();
+    if (!testUrl || !refUrl) {
+      continue;
+    }
+    if (
+      titleFilters.length > 0 &&
+      !titleFilters.some((needle) => normalizeCase(testUrl).includes(needle))
+    ) {
+      continue;
+    }
+    if (
+      fileFilters.length > 0 &&
+      !fileFilters.includes(normalizeCase(testUrl))
+    ) {
+      continue;
+    }
+
+    const actualUrl = buildViewerUrlForTestUrl(
+      opts.actualViewer,
+      testUrl,
+      actualExtra,
+    );
+    const baselineUrl = buildViewerUrlForTestUrl(
+      opts.baselineViewer,
+      refUrl,
+      baselineExtra,
+    );
+    if (!actualUrl || !baselineUrl) {
+      continue;
+    }
+
+    targets.push({
+      category: "Custom reftest",
+      title: testUrl,
+      file: testUrl,
+      sourceUrl: testUrl,
+      actualUrl,
+      actualPageRanges: null,
+      references: [
+        {
+          referenceFile: refUrl,
+          relation: "==",
+          baselineUrl,
+          baselinePageRanges: null,
+        },
+      ],
+      sourceType: "custom-reftest",
+      usedApprovedViewer: false,
+    });
+    if (opts.limit && targets.length >= opts.limit) {
+      break;
+    }
+  }
+
+  return targets;
+}
+
+function collectWptReftestTargets(opts) {
+  const sharedExtra = normalizeExtraParams(opts.extraViewerParams);
+  const actualExtra = `${sharedExtra}${normalizeExtraParams(opts.actualViewerParams)}${wptReftestViewerParams}`;
+  const baselineExtra = `${sharedExtra}${normalizeExtraParams(opts.baselineViewerParams)}${wptReftestViewerParams}`;
+  const titleFilters = opts.titleIncludes
+    .map((v) => normalizeCase(v))
+    .filter(Boolean);
+  const fileFilters = opts.files
+    .map((v) => normalizeCase(normalizeWptPath(v)))
+    .filter(Boolean);
+  const pathPrefixes = opts.wptPathPrefixes
+    .map((v) => normalizeWptPath(v))
+    .filter(Boolean);
+  const targets = [];
+  const unsupported = [];
+
+  for (const entry of loadWptReftestEntries(opts.wptManifestPath)) {
+    const testPath = normalizeWptPath(entry.path);
+    if (!testPath) {
+      continue;
+    }
+    if (
+      pathPrefixes.length > 0 &&
+      !pathPrefixes.some((prefix) => testPath.startsWith(prefix))
+    ) {
+      continue;
+    }
+    if (
+      titleFilters.length > 0 &&
+      !titleFilters.some((needle) => normalizeCase(testPath).includes(needle))
+    ) {
+      continue;
+    }
+    if (
+      fileFilters.length > 0 &&
+      !fileFilters.includes(normalizeCase(testPath))
+    ) {
+      continue;
+    }
+
+    const [, manifestData] = entry.value;
+    const references = Array.isArray(manifestData?.[1]) ? manifestData[1] : [];
+    const extras =
+      manifestData?.[2] && typeof manifestData[2] === "object"
+        ? manifestData[2]
+        : {};
+    const fuzzyMetadata = normalizeWptFuzzyMetadata(testPath, extras.fuzzy);
+    const pageRanges =
+      extras.page_ranges && typeof extras.page_ranges === "object"
+        ? extras.page_ranges
+        : {};
+    const actualPathKey = `/${testPath}`;
+
+    if (references.length === 0) {
+      unsupported.push(testPath);
+      continue;
+    }
+    const actualUrl = buildViewerUrlForTestUrl(
+      opts.actualViewer,
+      joinUrl(opts.wptBaseUrl, testPath),
+      actualExtra,
+    );
+    if (!actualUrl) {
+      continue;
+    }
+
+    const referenceTargets = [];
+    let hasUnsupportedReference = false;
+    for (const reference of references) {
+      if (!Array.isArray(reference) || reference.length < 2) {
+        hasUnsupportedReference = true;
+        break;
+      }
+      const [referenceRawPath, relation] = reference;
+      if (relation !== "==" && relation !== "!=") {
+        hasUnsupportedReference = true;
+        break;
+      }
+
+      const referencePath = normalizeWptPath(referenceRawPath);
+      const baselineUrl = buildViewerUrlForTestUrl(
+        opts.baselineViewer,
+        joinUrl(opts.wptBaseUrl, referencePath),
+        baselineExtra,
+      );
+      if (!baselineUrl) {
+        continue;
+      }
+
+      referenceTargets.push({
+        referenceFile: referencePath,
+        relation,
+        baselineUrl,
+        baselinePageRanges: normalizePageRanges(pageRanges[referenceRawPath]),
+        fuzzy: getWptFuzzyTolerance(fuzzyMetadata, referencePath, relation),
+      });
+    }
+
+    if (hasUnsupportedReference || referenceTargets.length === 0) {
+      unsupported.push(testPath);
+      continue;
+    }
+
+    targets.push({
+      category: `WPT ${entry.testType}`,
+      title: testPath,
+      file: testPath,
+      sourceUrl: joinUrl(opts.wptBaseUrl, testPath),
+      actualUrl,
+      actualPageRanges: normalizePageRanges(pageRanges[actualPathKey]),
+      references: referenceTargets,
+      sourceType: entry.testType,
+      usedApprovedViewer: false,
+    });
+    if (opts.limit && targets.length >= opts.limit) {
+      break;
+    }
+  }
+
+  if (unsupported.length > 0) {
+    console.log(
+      `Skipped ${unsupported.length} WPT ref entr${unsupported.length === 1 ? "y" : "ies"} with unsupported reference shape.`,
+    );
+  }
+
+  return targets;
+}
+
+function collectManualReftestDiffTargets(opts) {
+  const sharedExtra = normalizeExtraParams(opts.extraViewerParams);
+  const actualExtra = `${sharedExtra}${normalizeExtraParams(opts.actualViewerParams)}`;
+  const baselineExtra = `${sharedExtra}${normalizeExtraParams(opts.baselineViewerParams)}`;
+  const titleFilters = opts.titleIncludes
+    .map((v) => normalizeCase(v))
+    .filter(Boolean);
+  const fileFilters = opts.files.map((v) => normalizeCase(v)).filter(Boolean);
+  const targets = [];
+
+  for (let i = 0; i < opts.testUrls.length; i++) {
+    const testUrl = String(opts.testUrls[i] || "").trim();
+    const refUrl = String(opts.refUrls[i] || "").trim();
+    if (!testUrl || !refUrl) {
+      continue;
+    }
+    if (
+      titleFilters.length > 0 &&
+      !titleFilters.some((needle) => normalizeCase(testUrl).includes(needle))
+    ) {
+      continue;
+    }
+    if (
+      fileFilters.length > 0 &&
+      !fileFilters.includes(normalizeCase(testUrl))
+    ) {
+      continue;
+    }
+
+    const actualUrl = buildViewerUrlForTestUrl(
+      opts.actualViewer,
+      testUrl,
+      actualExtra,
+    );
+    const baselineUrl = buildViewerUrlForTestUrl(
+      opts.baselineViewer,
+      testUrl,
+      baselineExtra,
+    );
+    const actualReferenceUrl = buildViewerUrlForTestUrl(
+      opts.actualViewer,
+      refUrl,
+      actualExtra,
+    );
+    const baselineReferenceUrl = buildViewerUrlForTestUrl(
+      opts.baselineViewer,
+      refUrl,
+      baselineExtra,
+    );
+    if (
+      !actualUrl ||
+      !baselineUrl ||
+      !actualReferenceUrl ||
+      !baselineReferenceUrl
+    ) {
+      continue;
+    }
+
+    targets.push({
+      category: "Custom reftest diff",
+      title: normalizeManualTitle(testUrl),
+      file: testUrl,
+      sourceUrl: testUrl,
+      actualUrl,
+      baselineUrl,
+      actualPageRanges: null,
+      references: [
+        {
+          referenceFile: refUrl,
+          relation: "==",
+          actualReferenceUrl,
+          baselineReferenceUrl,
+          baselinePageRanges: null,
+          fuzzy: null,
+        },
+      ],
+      sourceType: "custom-reftest-diff",
+      usedApprovedViewer: false,
+    });
+    if (opts.limit && targets.length >= opts.limit) {
+      break;
+    }
+  }
+
+  return targets;
+}
+
+function collectWptReftestDiffTargets(opts) {
+  const sharedExtra = normalizeExtraParams(opts.extraViewerParams);
+  const actualExtra = `${sharedExtra}${normalizeExtraParams(opts.actualViewerParams)}${wptReftestViewerParams}`;
+  const baselineExtra = `${sharedExtra}${normalizeExtraParams(opts.baselineViewerParams)}${wptReftestViewerParams}`;
+  const titleFilters = opts.titleIncludes
+    .map((v) => normalizeCase(v))
+    .filter(Boolean);
+  const fileFilters = opts.files
+    .map((v) => normalizeCase(normalizeWptPath(v)))
+    .filter(Boolean);
+  const pathPrefixes = opts.wptPathPrefixes
+    .map((v) => normalizeWptPath(v))
+    .filter(Boolean);
+  const targets = [];
+  const unsupported = [];
+
+  for (const entry of loadWptReftestEntries(opts.wptManifestPath, {
+    includeManual: true,
+  })) {
+    const testPath = normalizeWptPath(entry.path);
+    if (!testPath) {
+      continue;
+    }
+    if (
+      pathPrefixes.length > 0 &&
+      !pathPrefixes.some((prefix) => testPath.startsWith(prefix))
+    ) {
+      continue;
+    }
+    if (
+      titleFilters.length > 0 &&
+      !titleFilters.some((needle) => normalizeCase(testPath).includes(needle))
+    ) {
+      continue;
+    }
+    if (
+      fileFilters.length > 0 &&
+      !fileFilters.includes(normalizeCase(testPath))
+    ) {
+      continue;
+    }
+
+    const [, manifestData] = entry.value;
+    const references = Array.isArray(manifestData?.[1]) ? manifestData[1] : [];
+    const extras =
+      manifestData?.[2] && typeof manifestData?.[2] === "object"
+        ? manifestData[2]
+        : {};
+    const fuzzyMetadata = normalizeWptFuzzyMetadata(testPath, extras.fuzzy);
+    const pageRanges =
+      extras.page_ranges && typeof extras.page_ranges === "object"
+        ? extras.page_ranges
+        : {};
+    const actualPathKey = `/${testPath}`;
+
+    if (entry.testType === "manual") {
+      const actualUrl = buildViewerUrlForTestUrl(
+        opts.actualViewer,
+        joinUrl(opts.wptBaseUrl, testPath),
+        actualExtra,
+      );
+      const baselineUrl = buildViewerUrlForTestUrl(
+        opts.baselineViewer,
+        joinUrl(opts.wptBaseUrl, testPath),
+        baselineExtra,
+      );
+      if (!actualUrl || !baselineUrl) {
+        continue;
+      }
+
+      targets.push({
+        category: "WPT manual",
+        title: testPath,
+        file: testPath,
+        sourceUrl: joinUrl(opts.wptBaseUrl, testPath),
+        actualUrl,
+        baselineUrl,
+        actualPageRanges: normalizePageRanges(pageRanges[actualPathKey]),
+        references: [],
+        sourceType: entry.testType,
+        usedApprovedViewer: false,
+      });
+      if (opts.limit && targets.length >= opts.limit) {
+        break;
+      }
+      continue;
+    }
+
+    if (references.length === 0) {
+      unsupported.push(testPath);
+      continue;
+    }
+
+    const actualUrl = buildViewerUrlForTestUrl(
+      opts.actualViewer,
+      joinUrl(opts.wptBaseUrl, testPath),
+      actualExtra,
+    );
+    const baselineUrl = buildViewerUrlForTestUrl(
+      opts.baselineViewer,
+      joinUrl(opts.wptBaseUrl, testPath),
+      baselineExtra,
+    );
+    if (!actualUrl || !baselineUrl) {
+      continue;
+    }
+
+    const referenceTargets = [];
+    let hasUnsupportedReference = false;
+    for (const reference of references) {
+      if (!Array.isArray(reference) || reference.length < 2) {
+        hasUnsupportedReference = true;
+        break;
+      }
+      const [referenceRawPath, relation] = reference;
+      if (relation !== "==" && relation !== "!=") {
+        hasUnsupportedReference = true;
+        break;
+      }
+
+      const referencePath = normalizeWptPath(referenceRawPath);
+      const actualReferenceUrl = buildViewerUrlForTestUrl(
+        opts.actualViewer,
+        joinUrl(opts.wptBaseUrl, referencePath),
+        actualExtra,
+      );
+      const baselineReferenceUrl = buildViewerUrlForTestUrl(
+        opts.baselineViewer,
+        joinUrl(opts.wptBaseUrl, referencePath),
+        baselineExtra,
+      );
+      if (!actualReferenceUrl || !baselineReferenceUrl) {
+        continue;
+      }
+
+      referenceTargets.push({
+        referenceFile: referencePath,
+        relation,
+        actualReferenceUrl,
+        baselineReferenceUrl,
+        baselinePageRanges: normalizePageRanges(pageRanges[referenceRawPath]),
+        fuzzy: getWptFuzzyTolerance(fuzzyMetadata, referencePath, relation),
+      });
+    }
+
+    if (hasUnsupportedReference || referenceTargets.length === 0) {
+      unsupported.push(testPath);
+      continue;
+    }
+
+    targets.push({
+      category: `WPT ${entry.testType}`,
+      title: testPath,
+      file: testPath,
+      sourceUrl: joinUrl(opts.wptBaseUrl, testPath),
+      actualUrl,
+      baselineUrl,
+      actualPageRanges: normalizePageRanges(pageRanges[actualPathKey]),
+      references: referenceTargets,
+      sourceType: entry.testType,
+      usedApprovedViewer: false,
+    });
+    if (opts.limit && targets.length >= opts.limit) {
+      break;
+    }
+  }
+
+  if (unsupported.length > 0) {
+    console.log(
+      `Skipped ${unsupported.length} WPT ref entr${unsupported.length === 1 ? "y" : "ies"} with unsupported reference shape.`,
+    );
+  }
+
+  return targets;
+}
+
 function collectTargets(fileList, opts, approvedViewerMap = new Map()) {
+  if (opts.mode === "reftest") {
+    if (opts.testUrls.length > 0 || opts.refUrls.length > 0) {
+      return collectManualReftestTargets(opts);
+    }
+    return collectWptReftestTargets(opts);
+  }
+
+  if (opts.mode === "reftest-diff") {
+    if (opts.testUrls.length > 0 || opts.refUrls.length > 0) {
+      return collectManualReftestDiffTargets(opts);
+    }
+    return collectWptReftestDiffTargets(opts);
+  }
+
   const gitRef = getTestFilesGitRef();
   // Test HTML source must be common to both sides and follows actualViewer.
   const testFileBaseUrl = testFilesBaseUrlForViewer(opts.actualViewer, gitRef);
@@ -535,6 +1340,7 @@ function collectTargets(fileList, opts, approvedViewerMap = new Map()) {
         category: customCategory,
         title: testUrl,
         file: [testUrl],
+        sourceUrl: testUrl,
         baselineUrl,
         actualUrl,
         sourceType: "custom-url",
@@ -614,6 +1420,7 @@ function collectTargets(fileList, opts, approvedViewerMap = new Map()) {
         category: group.category,
         title: entry.title,
         file: entry.file,
+        sourceUrl: buildPrimarySourceUrl(entry, testFileBaseUrl),
         baselineUrl,
         actualUrl,
         usedApprovedViewer: !!approvedViewerUrl,
@@ -803,6 +1610,7 @@ function comparePngPair(
   actualPngPath,
   diffPngPath,
   pixelThreshold,
+  maxAllowedChannelDifference = null,
 ) {
   const baseline = PNG.sync.read(fs.readFileSync(baselinePngPath));
   const actual = PNG.sync.read(fs.readFileSync(actualPngPath));
@@ -815,8 +1623,35 @@ function comparePngPair(
       actualHeight: actual.height,
       diffPixels: Number.POSITIVE_INFINITY,
       diffRatio: Number.POSITIVE_INFINITY,
+      exactDiffPixels: Number.POSITIVE_INFINITY,
+      exactDiffRatio: Number.POSITIVE_INFINITY,
+      exceededDiffPixels: Number.POSITIVE_INFINITY,
+      maxChannelDifference: Number.POSITIVE_INFINITY,
       dimensionMismatch: true,
     };
+  }
+
+  let exactDiffPixels = 0;
+  let exceededDiffPixels = 0;
+  let maxChannelDifference = 0;
+  for (let index = 0; index < baseline.data.length; index += 4) {
+    const pixelDifference = Math.max(
+      Math.abs(baseline.data[index] - actual.data[index]),
+      Math.abs(baseline.data[index + 1] - actual.data[index + 1]),
+      Math.abs(baseline.data[index + 2] - actual.data[index + 2]),
+    );
+    if (pixelDifference > 0) {
+      exactDiffPixels += 1;
+      if (pixelDifference > maxChannelDifference) {
+        maxChannelDifference = pixelDifference;
+      }
+    }
+    if (
+      Number.isFinite(maxAllowedChannelDifference) &&
+      pixelDifference > maxAllowedChannelDifference
+    ) {
+      exceededDiffPixels += 1;
+    }
   }
 
   const diff = new PNG({ width: baseline.width, height: baseline.height });
@@ -829,7 +1664,9 @@ function comparePngPair(
     { threshold: pixelThreshold },
   );
 
-  fs.writeFileSync(diffPngPath, PNG.sync.write(diff));
+  if (diffPngPath) {
+    fs.writeFileSync(diffPngPath, PNG.sync.write(diff));
+  }
   const allPixels = baseline.width * baseline.height;
 
   return {
@@ -839,24 +1676,408 @@ function comparePngPair(
     actualHeight: actual.height,
     diffPixels,
     diffRatio: diffPixels / allPixels,
+    exactDiffPixels,
+    exactDiffRatio: exactDiffPixels / allPixels,
+    exceededDiffPixels,
+    maxChannelDifference,
     dimensionMismatch: false,
   };
 }
 
-function getTriageSourcePath(outDir) {
-  const yamlPath = path.join(outDir, "triage.yaml");
-  const baselinePath = path.join(
-    repoRoot,
-    "scripts",
-    "layout-regression-triage.yaml",
+function isWithinWptFuzzyTolerance(compared, fuzzy) {
+  if (compared.dimensionMismatch) {
+    return false;
+  }
+
+  if (compared.exactDiffPixels === 0 && compared.maxChannelDifference === 0) {
+    return true;
+  }
+
+  if (!fuzzy) {
+    return false;
+  }
+
+  const allowedPerChannel = fuzzy.maxDifference;
+  const allowedDifferent = fuzzy.totalPixels;
+  const differentPixels =
+    compared.exceededDiffPixels ?? compared.exactDiffPixels;
+
+  return (
+    allowedPerChannel[0] <= compared.maxChannelDifference &&
+    compared.maxChannelDifference <= allowedPerChannel[1] &&
+    allowedDifferent[0] <= differentPixels &&
+    differentPixels <= allowedDifferent[1]
   );
+}
+
+function getSelectedPageNumbers(rangesValue, totalPages) {
+  if (!rangesValue) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const pages = new Set();
+
+  for (const rawRange of rangesValue) {
+    const range = Array.isArray(rawRange) ? rawRange.slice(0, 2) : [rawRange];
+    if (range.length === 0) {
+      continue;
+    }
+    if (range.length === 1) {
+      range[1] = range[0];
+    }
+
+    let [start, end] = range;
+    if (start == null) {
+      start = 1;
+    }
+    if (end == null) {
+      end = totalPages;
+    }
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      continue;
+    }
+    if (start > totalPages) {
+      continue;
+    }
+
+    const from = Math.max(1, start);
+    const to = Math.min(totalPages, end);
+    for (let page = from; page <= to; page++) {
+      pages.add(page);
+    }
+  }
+
+  return [...pages].sort((left, right) => left - right);
+}
+
+function capturePageImagePath(dir, key, pageNumber) {
+  return path.join(dir, `${key}-p${String(pageNumber).padStart(4, "0")}.png`);
+}
+
+function compareCapturedReference({
+  actual,
+  actualDir,
+  actualKey,
+  actualPageRanges,
+  baseline,
+  baselineDir,
+  baselineKey,
+  baselinePageRanges,
+  diffDir,
+  diffKey,
+  fuzzy,
+  maxDiffRatio,
+  pixelThreshold,
+  relation,
+  skipScreenshots,
+  useWptMatching,
+  writeDiffs,
+}) {
+  const actualPageNumbers = getSelectedPageNumbers(
+    actualPageRanges,
+    actual.totalPages,
+  );
+  const baselinePageNumbers = getSelectedPageNumbers(
+    baselinePageRanges,
+    baseline.totalPages,
+  );
+
+  const comparison = {
+    relation,
+    fuzzy,
+    actualPageNumbers,
+    baselinePageNumbers,
+    pageCountMismatch: actualPageNumbers.length !== baselinePageNumbers.length,
+    pages: [],
+    unexpectedEquality: false,
+    pass: false,
+  };
+
+  if (comparison.pageCountMismatch) {
+    comparison.pass = relation === "!=";
+    return comparison;
+  }
+
+  if (skipScreenshots) {
+    comparison.pass = relation === "==";
+    comparison.unexpectedEquality = relation === "!=";
+    return comparison;
+  }
+
+  let foundDifference = false;
+
+  for (let index = 0; index < actualPageNumbers.length; index++) {
+    const actualPageNumber = actualPageNumbers[index];
+    const baselinePageNumber = baselinePageNumbers[index];
+    const diffPngPath =
+      writeDiffs && relation === "=="
+        ? path.join(
+            diffDir,
+            `${diffKey}-p${String(index + 1).padStart(4, "0")}.png`,
+          )
+        : null;
+
+    const compared = comparePngPair(
+      capturePageImagePath(baselineDir, baselineKey, baselinePageNumber),
+      capturePageImagePath(actualDir, actualKey, actualPageNumber),
+      diffPngPath,
+      pixelThreshold,
+      fuzzy?.maxDifference?.[1] ?? null,
+    );
+    const differs = useWptMatching
+      ? !isWithinWptFuzzyTolerance(compared, fuzzy)
+      : compared.diffRatio > maxDiffRatio;
+
+    if (relation === "==") {
+      if (differs) {
+        comparison.pages.push({
+          page: index + 1,
+          actualPage: actualPageNumber,
+          baselinePage: baselinePageNumber,
+          ...compared,
+          ...(diffPngPath ? { diffImage: diffPngPath } : {}),
+        });
+      } else if (diffPngPath) {
+        fs.rmSync(diffPngPath, { force: true });
+      }
+    } else if (differs) {
+      foundDifference = true;
+    }
+  }
+
+  if (relation === "==") {
+    comparison.pass = comparison.pages.length === 0;
+    return comparison;
+  }
+
+  comparison.pass = foundDifference;
+  comparison.unexpectedEquality = !comparison.pass;
+  return comparison;
+}
+
+function compareCapturedViewerPair({
+  actual,
+  actualDir,
+  actualKey,
+  baseline,
+  baselineDir,
+  baselineKey,
+  diffDir,
+  diffKey,
+  maxDiffRatio,
+  pixelThreshold,
+  skipScreenshots,
+}) {
+  const result = {
+    pageCountMismatch: baseline.totalPages !== actual.totalPages,
+    pages: [],
+  };
+
+  if (skipScreenshots) {
+    return result;
+  }
+
+  const compareCount = Math.min(baseline.totalPages, actual.totalPages);
+  for (let page = 1; page <= compareCount; page++) {
+    const diffPngPath = path.join(
+      diffDir,
+      `${diffKey}-p${String(page).padStart(4, "0")}.png`,
+    );
+    const compared = comparePngPair(
+      capturePageImagePath(baselineDir, baselineKey, page),
+      capturePageImagePath(actualDir, actualKey, page),
+      diffPngPath,
+      pixelThreshold,
+    );
+
+    if (compared.diffRatio > maxDiffRatio) {
+      result.pages.push({ page, ...compared, diffImage: diffPngPath });
+    } else {
+      fs.rmSync(diffPngPath, { force: true });
+    }
+  }
+
+  return result;
+}
+
+function evaluateReferenceComparisons({
+  testCapture,
+  testDir,
+  testKey,
+  testPageRanges,
+  referenceCaptures,
+  referenceDir,
+  diffDir,
+  diffKeyPrefix,
+  sourceType,
+  maxDiffRatio,
+  pixelThreshold,
+  skipScreenshots,
+  writeDiffs,
+}) {
+  let comparisonResults = referenceCaptures.map((item, referenceIndex) => ({
+    referenceIndex,
+    referenceFile: item.reference.referenceFile,
+    referenceUrl: item.reference.referenceUrl || item.reference.baselineUrl,
+    referenceTotalPages: item.result.totalPages,
+    testTotalPages: testCapture.totalPages,
+    ...compareCapturedReference({
+      actual: testCapture,
+      actualDir: testDir,
+      actualKey: testKey,
+      actualPageRanges: testPageRanges,
+      baseline: item.result,
+      baselineDir: referenceDir,
+      baselineKey: item.referenceKey,
+      baselinePageRanges: item.reference.baselinePageRanges,
+      diffDir,
+      diffKey: `${diffKeyPrefix}-r${String(referenceIndex + 1).padStart(2, "0")}`,
+      fuzzy: item.reference.fuzzy || null,
+      maxDiffRatio,
+      pixelThreshold,
+      relation: item.reference.relation,
+      skipScreenshots,
+      useWptMatching:
+        sourceType !== "custom-reftest" && sourceType !== "custom-reftest-diff",
+      writeDiffs: false,
+    }),
+  }));
+
+  const failedMismatchs = comparisonResults.filter(
+    (item) => item.relation === "!=" && !item.pass,
+  );
+  const matchResults = comparisonResults.filter(
+    (item) => item.relation === "==",
+  );
+  const overallPass =
+    failedMismatchs.length === 0 &&
+    (matchResults.length === 0 || matchResults.some((item) => item.pass));
+
+  let failingComparisons = [];
+  if (!overallPass) {
+    const failingReferenceIndexes = new Set(
+      (failedMismatchs.length > 0
+        ? failedMismatchs
+        : matchResults.filter((item) => !item.pass)
+      ).map((item) => item.referenceIndex),
+    );
+
+    if (writeDiffs) {
+      comparisonResults = comparisonResults.map((item) => {
+        if (
+          item.relation === "==" &&
+          !item.pass &&
+          failingReferenceIndexes.has(item.referenceIndex)
+        ) {
+          const referenceItem = referenceCaptures[item.referenceIndex];
+          return {
+            referenceIndex: item.referenceIndex,
+            referenceFile: item.referenceFile,
+            referenceUrl: item.referenceUrl,
+            referenceTotalPages: item.referenceTotalPages,
+            testTotalPages: item.testTotalPages,
+            ...compareCapturedReference({
+              actual: testCapture,
+              actualDir: testDir,
+              actualKey: testKey,
+              actualPageRanges: testPageRanges,
+              baseline: referenceItem.result,
+              baselineDir: referenceDir,
+              baselineKey: referenceItem.referenceKey,
+              baselinePageRanges: referenceItem.reference.baselinePageRanges,
+              diffDir,
+              diffKey: `${diffKeyPrefix}-r${String(item.referenceIndex + 1).padStart(2, "0")}`,
+              fuzzy: referenceItem.reference.fuzzy || null,
+              maxDiffRatio,
+              pixelThreshold,
+              relation: referenceItem.reference.relation,
+              skipScreenshots,
+              useWptMatching:
+                sourceType !== "custom-reftest" &&
+                sourceType !== "custom-reftest-diff",
+              writeDiffs: true,
+            }),
+          };
+        }
+        return item;
+      });
+    }
+
+    failingComparisons = comparisonResults.filter((item) =>
+      failedMismatchs.length > 0
+        ? item.relation === "!=" && !item.pass
+        : item.relation === "==" && !item.pass,
+    );
+  }
+
+  return {
+    pass: overallPass,
+    comparisonResults,
+    failingComparisons,
+    pageCountMismatch: comparisonResults.some((item) => item.pageCountMismatch),
+    screenshotMismatch: comparisonResults.some((item) => item.pages.length > 0),
+  };
+}
+
+function getCombinedChangeType({
+  actualStatus,
+  baselineStatus,
+  viewerChanged,
+}) {
+  if (actualStatus === "ERROR" || baselineStatus === "ERROR") {
+    return "error";
+  }
+  if (actualStatus === "FAIL" && baselineStatus === "PASS") {
+    return "regression";
+  }
+  if (actualStatus === "PASS" && baselineStatus === "FAIL") {
+    return "improvement";
+  }
+  if (actualStatus === "PASS" && baselineStatus === "PASS") {
+    return viewerChanged ? "expected-change" : "pass";
+  }
+  return viewerChanged ? "changed-fail" : "known-fail";
+}
+
+function getManualCombinedChangeType(viewerChanged) {
+  return viewerChanged ? "changed" : "unchanged";
+}
+
+function summarizeCombinedEntries(entries) {
+  const changeTypes = {};
+  const statusPairs = {};
+
+  for (const entry of entries) {
+    changeTypes[entry.changeType] = (changeTypes[entry.changeType] || 0) + 1;
+    const pairKey = `${entry.baselineStatus}->${entry.actualStatus}`;
+    statusPairs[pairKey] = (statusPairs[pairKey] || 0) + 1;
+  }
+
+  return {
+    changeTypes,
+    statusPairs,
+  };
+}
+
+function formatPageList(pageNumbers) {
+  if (!Array.isArray(pageNumbers) || pageNumbers.length === 0) {
+    return "none";
+  }
+  if (pageNumbers.length <= 10) {
+    return pageNumbers.join(", ");
+  }
+  return `${pageNumbers.slice(0, 10).join(", ")} ... (${pageNumbers.length} pages)`;
+}
+
+function getTriageSourcePath(outDir, baselinePath = null) {
+  const yamlPath = path.join(outDir, "triage.yaml");
   if (fs.existsSync(yamlPath)) return yamlPath;
-  if (fs.existsSync(baselinePath)) return baselinePath;
+  if (baselinePath && fs.existsSync(baselinePath)) return baselinePath;
   return null;
 }
 
-function loadTriageStatusMap(outDir) {
-  const sourcePath = getTriageSourcePath(outDir);
+function loadTriageStatusMap(outDir, baselinePath = null) {
+  const sourcePath = getTriageSourcePath(outDir, baselinePath);
   if (!sourcePath) return new Map();
 
   try {
@@ -959,6 +2180,7 @@ function writeReports(outDir, result, triageStatusMap) {
         triagedEntries: differencesTriage.triaged + errorsTriage.triaged,
       },
     },
+    ...(Array.isArray(result.entries) ? { entries: result.entries } : {}),
     differences: differencesWithTriage,
     errors: errorsWithTriage,
   };
@@ -981,6 +2203,11 @@ function writeReports(outDir, result, triageStatusMap) {
   lines.push(`- Timeout entries: ${result.summary.timeoutEntries}`);
   lines.push(`- Page-count mismatches: ${result.summary.pageCountMismatches}`);
   lines.push(`- Screenshot mismatches: ${result.summary.screenshotMismatches}`);
+  if (result.summary.outcomes) {
+    lines.push(
+      `- Outcome summary: ${JSON.stringify(result.summary.outcomes.changeTypes)}`,
+    );
+  }
   lines.push("");
 
   if (resultWithTriage.differences.length === 0) {
@@ -994,20 +2221,56 @@ function writeReports(outDir, result, triageStatusMap) {
       lines.push(
         `  triage: ${triage.status}${triage.decision ? ` (${triage.decision})` : ""}`,
       );
-      if (diff.pageCountMismatch) {
+      if (diff.classification) {
         lines.push(
-          `  page count: ${result.labels.actual}=${diff.actual.totalPages}, ${result.labels.baseline}=${diff.baseline.totalPages}`,
+          `  outcome: ${diff.classification} (baseline=${diff.baselineStatus}, actual=${diff.actualStatus})`,
         );
       }
-      for (const p of diff.pages) {
-        lines.push(
-          `  page ${p.page}: diffRatio=${p.diffRatio}, diffPixels=${p.diffPixels}${
-            p.dimensionMismatch ? " (dimension mismatch)" : ""
-          }`,
-        );
+      if (Array.isArray(diff.comparisons) && diff.comparisons.length > 0) {
+        for (const comparison of diff.comparisons) {
+          lines.push(
+            `  reference: ${comparison.referenceFile} (${comparison.relation})`,
+          );
+          if (comparison.pageCountMismatch) {
+            lines.push(
+              `  selected pages: ${result.labels.actual}=[${formatPageList(comparison.actualPageNumbers)}], ${result.labels.baseline}=[${formatPageList(comparison.baselinePageNumbers)}]`,
+            );
+          }
+          if (comparison.unexpectedEquality) {
+            lines.push(
+              "  unexpected equality: comparison matched but relation is !=",
+            );
+          }
+          for (const p of comparison.pages) {
+            const pageLabel =
+              p.actualPage === p.baselinePage
+                ? `page ${p.actualPage}`
+                : `${result.labels.actual} page ${p.actualPage} vs ${result.labels.baseline} page ${p.baselinePage}`;
+            lines.push(
+              `  ${pageLabel}: diffRatio=${p.diffRatio}, diffPixels=${p.diffPixels}${
+                p.dimensionMismatch ? " (dimension mismatch)" : ""
+              }`,
+            );
+          }
+          lines.push(`  ${result.labels.actual}: ${diff.actual.url}`);
+          lines.push(`  ${result.labels.baseline}: ${comparison.baselineUrl}`);
+        }
+      } else {
+        if (diff.pageCountMismatch) {
+          lines.push(
+            `  page count: ${result.labels.actual}=${diff.actual.totalPages}, ${result.labels.baseline}=${diff.baseline.totalPages}`,
+          );
+        }
+        for (const p of diff.pages) {
+          lines.push(
+            `  page ${p.page}: diffRatio=${p.diffRatio}, diffPixels=${p.diffPixels}${
+              p.dimensionMismatch ? " (dimension mismatch)" : ""
+            }`,
+          );
+        }
+        lines.push(`  ${result.labels.actual}: ${diff.actual.url}`);
+        lines.push(`  ${result.labels.baseline}: ${diff.baseline.url}`);
       }
-      lines.push(`  ${result.labels.actual}: ${diff.actual.url}`);
-      lines.push(`  ${result.labels.baseline}: ${diff.baseline.url}`);
       lines.push("");
     }
   }
@@ -1022,6 +2285,9 @@ function writeReports(outDir, result, triageStatusMap) {
         `  triage: ${triage.status}${triage.decision ? ` (${triage.decision})` : ""}`,
       );
       lines.push(`  side: ${item.side}`);
+      if (item.referenceFile) {
+        lines.push(`  reference: ${item.referenceFile}`);
+      }
       lines.push(`  timeout: ${item.error.timeout}`);
       lines.push(`  error: ${item.error.name}: ${item.error.message}`);
       lines.push(`  ${result.labels.actual}: ${item.actualUrl}`);
@@ -1033,7 +2299,268 @@ function writeReports(outDir, result, triageStatusMap) {
   const mdPath = path.join(outDir, "report.md");
   fs.writeFileSync(mdPath, `${lines.join("\n")}\n`, "utf8");
 
-  return { jsonPath, mdPath };
+  const htmlPath = path.join(outDir, "report.html");
+  const escapeHtml = (value) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;");
+  const renderAnchor = (url, body, className = "") =>
+    url
+      ? `<a${className ? ` class="${className}"` : ""} href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${body}</a>`
+      : body;
+  const renderBadge = (label, className, url) =>
+    renderAnchor(
+      url,
+      `<span class="badge ${className}">${escapeHtml(label)}</span>`,
+      "badge-link",
+    );
+  const renderFilterBadge = (label, className) =>
+    `<button type="button" class="badge filter-badge ${className}" data-filter="${escapeHtml(label)}">${escapeHtml(label)}</button>`;
+  const toReportRelativePath = (filePath) =>
+    escapeHtml(path.relative(outDir, filePath).split(path.sep).join("/"));
+  const collectDiffImageLinks = (diff) => {
+    if (!diff) return [];
+
+    const links = [];
+    const seen = new Set();
+    const pushLink = (label, filePath) => {
+      if (!filePath || seen.has(filePath)) {
+        return;
+      }
+      seen.add(filePath);
+      links.push({ label, href: toReportRelativePath(filePath) });
+    };
+
+    if (Array.isArray(diff.pages)) {
+      for (const page of diff.pages) {
+        pushLink(`p${page.page}`, page.diffImage);
+      }
+    }
+    if (Array.isArray(diff.comparisons)) {
+      diff.comparisons.forEach((comparison, comparisonIndex) => {
+        comparison.pages.forEach((page, pageIndex) => {
+          const prefix =
+            diff.comparisons.length > 1
+              ? `r${comparisonIndex + 1}-p${pageIndex + 1}`
+              : `p${pageIndex + 1}`;
+          pushLink(prefix, page.diffImage);
+        });
+      });
+    }
+
+    return links;
+  };
+  const renderChangeCell = (changeType, diff) => {
+    const badge = renderFilterBadge(changeType, changeClass(changeType));
+    const diffLinks = collectDiffImageLinks(diff);
+    if (diffLinks.length === 0) {
+      return badge;
+    }
+    const linksHtml = diffLinks
+      .map(
+        (item) =>
+          `<a class="diff-link" href="${item.href}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.label)}</a>`,
+      )
+      .join("");
+    return `<div class="change-cell">${badge}<span class="diff-links">${linksHtml}</span></div>`;
+  };
+  const statusClass = (value) => {
+    if (value === "PASS") return "pass";
+    if (value === "FAIL") return "fail";
+    if (value === "ERROR") return "error";
+    if (value === "MANUAL") return "neutral";
+    return "neutral";
+  };
+  const changeClass = (value) => {
+    if (value === "regression") return "fail";
+    if (value === "improvement") return "improvement";
+    if (value === "changed") return "fail";
+    if (value === "unchanged") return "pass";
+    if (value === "pass" || value === "expected-change") return "pass";
+    if (value === "error") return "error";
+    return "neutral";
+  };
+  const renderFallbackViewerBadge = (url) =>
+    renderBadge(
+      result.options.mode === "version-diff" ? "view" : "-",
+      "neutral",
+      url,
+    );
+  const renderFallbackActualDifferenceBadge = (url) =>
+    result.options.mode === "version-diff"
+      ? renderBadge("view", "neutral", url)
+      : renderBadge("FAIL", "fail", url);
+  const diffById = new Map(
+    resultWithTriage.differences.map((item) => [item.id, item]),
+  );
+  const errorById = new Map();
+  for (const item of resultWithTriage.errors) {
+    const items = errorById.get(item.id) || [];
+    items.push(item);
+    errorById.set(item.id, items);
+  }
+  const rows = Array.isArray(resultWithTriage.entries)
+    ? resultWithTriage.entries
+        .map((entry) => {
+          const diff = diffById.get(entry.id);
+          const entryErrors = errorById.get(entry.id) || [];
+          const notes = [];
+          if (diff?.pageCountMismatch) {
+            notes.push("page count changed");
+          }
+          if (diff?.pages?.length > 0) {
+            notes.push(`${diff.pages.length} viewer diff page(s)`);
+          }
+          if (entryErrors.length > 0) {
+            notes.push(entryErrors.map((item) => item.side).join(", "));
+          }
+          const titleHtml = renderAnchor(
+            entry.sourceUrl,
+            escapeHtml(entry.title),
+            "test-link",
+          );
+          return `<tr>
+  <td class="test-path">${titleHtml}</td>
+  <td>${renderBadge(entry.baselineStatus, statusClass(entry.baselineStatus), entry.baselineUrl)}</td>
+  <td>${renderBadge(entry.actualStatus, statusClass(entry.actualStatus), entry.actualUrl)}</td>
+  <td data-change-type="${escapeHtml(entry.changeType)}">${renderChangeCell(entry.changeType, diff)}</td>
+  <td>${escapeHtml(notes.join(" | "))}</td>
+</tr>`;
+        })
+        .join("\n")
+    : resultWithTriage.differences
+        .map(
+          (diff) => `<tr>
+  <td class="test-path">${renderAnchor(diff.sourceUrl, escapeHtml(diff.title), "test-link")}</td>
+  <td>${renderFallbackViewerBadge(diff.baseline?.url)}</td>
+  <td>${renderFallbackActualDifferenceBadge(diff.actual?.url)}</td>
+  <td data-change-type="difference">${renderChangeCell("difference", diff)}</td>
+  <td>${escapeHtml(diff.pageCountMismatch ? "page count changed" : `${diff.pages.length} page diff(s)`)}</td>
+</tr>`,
+        )
+        .concat(
+          resultWithTriage.errors.map(
+            (item) => `<tr>
+  <td class="test-path">${renderAnchor(item.sourceUrl, escapeHtml(item.title), "test-link")}</td>
+  <td>${renderFallbackViewerBadge(item.baselineUrl)}</td>
+  <td>${renderBadge("ERROR", "error", item.actualUrl)}</td>
+  <td data-change-type="error">${renderChangeCell("error")}</td>
+  <td>${escapeHtml(`${item.side}: ${item.error.message}`)}</td>
+</tr>`,
+          ),
+        )
+        .join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(result.labels.actual)} vs ${escapeHtml(result.labels.baseline)} report</title>
+  <style>
+    :root { color-scheme: light; --bg:#f6f4ef; --panel:#fffdf8; --ink:#222; --muted:#6b665c; --line:#ddd4c4; --pass:#1f7a4d; --fail:#b42318; --error:#9c2a2a; --improvement:#0f766e; --neutral:#7a6f5a; }
+    body { margin:0; font:14px/1.4 ui-sans-serif, system-ui, sans-serif; color:var(--ink); background:linear-gradient(180deg,#f3efe6 0%,#f8f6f1 100%); }
+    main { max-width:1200px; margin:0 auto; padding:32px 24px 64px; }
+    h1 { margin:0 0 8px; font-size:28px; }
+    p { margin:0; color:var(--muted); }
+    .summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin:24px 0; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:16px; box-shadow:0 8px 24px rgba(0,0,0,.04); }
+    .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
+    .value { font-size:28px; font-weight:700; margin-top:6px; }
+    table { width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line); border-radius:18px; overflow:hidden; }
+    th, td { padding:12px 14px; border-bottom:1px solid var(--line); vertical-align:top; text-align:left; }
+    th { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); background:#f5f0e6; }
+    tr:last-child td { border-bottom:none; }
+    .badge { display:inline-block; padding:3px 9px; border-radius:999px; font-size:12px; font-weight:700; color:#fff; }
+    .badge.pass { background:var(--pass); }
+    .badge.fail { background:var(--fail); }
+    .badge.error { background:var(--error); }
+    .badge.improvement { background:var(--improvement); }
+    .badge.neutral { background:var(--neutral); }
+    .filter-badge { border:none; cursor:pointer; }
+    .badge-link, .test-link { color:inherit; text-decoration:none; }
+    .badge-link:hover .badge { filter:brightness(.94); }
+    .test-link:hover { text-decoration:underline; }
+    .change-cell { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .diff-links { display:flex; gap:6px; flex-wrap:wrap; }
+    .diff-link { color:var(--muted); text-decoration:none; font-size:12px; border:1px solid var(--line); border-radius:999px; padding:2px 8px; background:#f5f0e6; }
+    .diff-link:hover { text-decoration:underline; }
+    .toolbar { display:flex; align-items:center; gap:10px; margin:0 0 18px; color:var(--muted); }
+    .toolbar[hidden] { display:none; }
+    .filter-reset { border:1px solid var(--line); background:var(--panel); border-radius:999px; padding:4px 10px; cursor:pointer; }
+    .is-hidden { display:none; }
+    .test-path { font-family:ui-monospace, SFMono-Regular, monospace; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>${escapeHtml(result.labels.actual)} vs ${escapeHtml(result.labels.baseline)}</h1>
+    <p>${escapeHtml(result.options.mode)} mode report generated at ${escapeHtml(result.generatedAt)}</p>
+    <section class="summary">
+      <div class="card"><div class="label">Compared</div><div class="value">${escapeHtml(result.summary.totalEntries)}</div></div>
+      <div class="card"><div class="label">Differences</div><div class="value">${escapeHtml(result.summary.entriesWithDifferences)}</div></div>
+      <div class="card"><div class="label">Errors</div><div class="value">${escapeHtml(result.summary.entriesWithErrors)}</div></div>
+      <div class="card"><div class="label">Page Count</div><div class="value">${escapeHtml(result.summary.pageCountMismatches)}</div></div>
+    </section>
+    <div class="toolbar" id="filter-toolbar" hidden>
+      <span>Filtered by change: <strong id="filter-value"></strong></span>
+      <button type="button" class="filter-reset" id="filter-reset">Clear</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Test</th>
+          <th>${escapeHtml(result.labels.baseline)}</th>
+          <th>${escapeHtml(result.labels.actual)}</th>
+          <th>Change</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+${rows}
+      </tbody>
+    </table>
+  </main>
+  <script>
+    (() => {
+      const rows = Array.from(document.querySelectorAll("tbody tr"));
+      const toolbar = document.getElementById("filter-toolbar");
+      const filterValue = document.getElementById("filter-value");
+      const resetButton = document.getElementById("filter-reset");
+      let currentFilter = "";
+
+      const applyFilter = (nextFilter) => {
+        currentFilter = nextFilter;
+        rows.forEach((row) => {
+          const cell = row.querySelector("td[data-change-type]");
+          const changeType = cell?.dataset.changeType || "";
+          row.classList.toggle(
+            "is-hidden",
+            Boolean(currentFilter) && changeType !== currentFilter,
+          );
+        });
+        toolbar.hidden = !currentFilter;
+        if (filterValue) {
+          filterValue.textContent = currentFilter;
+        }
+      };
+
+      document.querySelectorAll(".filter-badge").forEach((button) => {
+        button.addEventListener("click", () => {
+          applyFilter(
+            currentFilter === button.dataset.filter ? "" : button.dataset.filter,
+          );
+        });
+      });
+      resetButton?.addEventListener("click", () => applyFilter(""));
+    })();
+  </script>
+</body>
+</html>`;
+  fs.writeFileSync(htmlPath, html, "utf8");
+
+  return { jsonPath, mdPath, htmlPath };
 }
 
 function writeTriageTemplate(outDir, result) {
@@ -1052,13 +2579,50 @@ function writeTriageTemplate(outDir, result) {
       actualLabel: result.labels.actual,
       actualUrl: diff.actual.url,
       baselineLabel: result.labels.baseline,
-      baselineUrl: diff.baseline.url,
+      baselineUrl: diff.baseline?.url,
     };
+    if (Array.isArray(diff.comparisons) && diff.comparisons.length > 0) {
+      if (diff.comparisons.length === 1) {
+        entry.referenceFile = diff.comparisons[0].referenceFile;
+        entry.relation = diff.comparisons[0].relation;
+      } else {
+        entry.referenceFiles = diff.comparisons.map(
+          (item) => item.referenceFile,
+        );
+        entry.relations = diff.comparisons.map((item) => item.relation);
+      }
+      const unexpectedMatches = diff.comparisons
+        .filter((item) => item.unexpectedEquality)
+        .map((item) => item.referenceFile);
+      if (unexpectedMatches.length > 0) {
+        entry.unexpectedMatches = unexpectedMatches;
+      }
+      const diffPages = diff.comparisons.flatMap((item) =>
+        item.pages.map((page) =>
+          page.actualPage === page.baselinePage
+            ? `${item.referenceFile}#${page.actualPage}`
+            : `${item.referenceFile}#${page.actualPage}:${page.baselinePage}`,
+        ),
+      );
+      if (diffPages.length > 0) {
+        entry.diffPages = diffPages;
+      }
+      const pageSelections = diff.comparisons
+        .filter((item) => item.pageCountMismatch)
+        .map((item) => ({
+          referenceFile: item.referenceFile,
+          actualPages: item.actualPageNumbers,
+          baselinePages: item.baselinePageNumbers,
+        }));
+      if (pageSelections.length > 0) {
+        entry.pageSelections = pageSelections;
+      }
+    }
     if (diff.pageCountMismatch) {
       entry.pageCountActual = diff.actual.totalPages;
-      entry.pageCountBaseline = diff.baseline.totalPages;
+      entry.pageCountBaseline = diff.baseline?.totalPages;
     }
-    if (diff.pages.length > 0) {
+    if (diff.pages.length > 0 && !entry.diffPages) {
       entry.diffPages = diff.pages.map((p) => p.page);
     }
     entries.push(entry);
@@ -1079,19 +2643,19 @@ function writeTriageTemplate(outDir, result) {
       baselineLabel: result.labels.baseline,
       baselineUrl: err.baselineUrl,
       errorSide: err.side,
+      ...(err.referenceFile ? { referenceFile: err.referenceFile } : {}),
       errorName: err.error.name,
       errorMessage: err.error.message,
     });
   }
 
   const yamlPath = path.join(outDir, "triage.yaml");
-  const baselinePath = path.join(
-    repoRoot,
-    "scripts",
-    "layout-regression-triage.yaml",
-  );
+  const baselinePath =
+    result.options.mode === "version-diff"
+      ? path.join(repoRoot, "scripts", "layout-regression-triage.yaml")
+      : null;
   // The committed baseline file serves as carry-over source when no local triage.yaml exists yet.
-  const carrySourcePath = getTriageSourcePath(outDir);
+  const carrySourcePath = getTriageSourcePath(outDir, baselinePath);
 
   // Carry over decision/notes from a previous triage.yaml so that re-runs
   // don't wipe out already-triaged entries.
@@ -1235,7 +2799,10 @@ function writeTriageTemplate(outDir, result) {
  * Used to substitute the baseline viewer on a per-entry basis.
  */
 function loadApprovedViewerMap(outDir) {
-  const sourcePath = getTriageSourcePath(outDir);
+  const sourcePath = getTriageSourcePath(
+    outDir,
+    path.join(repoRoot, "scripts", "layout-regression-triage.yaml"),
+  );
   if (!sourcePath) return new Map();
   try {
     const entries = yaml.load(fs.readFileSync(sourcePath, "utf8"));
@@ -1252,24 +2819,43 @@ function loadApprovedViewerMap(outDir) {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
-  const fileList = loadFileList();
-  const testFilesGitRef = getTestFilesGitRef();
-  const testFilesBaseUrl = testFilesBaseUrlForViewer(
-    opts.actualViewer,
-    testFilesGitRef,
-  );
-  if (isLocalViewerUrl(opts.actualViewer)) {
-    console.log(`Using local test files: ${testFilesBaseUrl}`);
+  const fileList = opts.mode === "version-diff" ? loadFileList() : [];
+  if (opts.mode === "version-diff") {
+    const testFilesGitRef = getTestFilesGitRef();
+    const testFilesBaseUrl = testFilesBaseUrlForViewer(
+      opts.actualViewer,
+      testFilesGitRef,
+    );
+    if (isLocalViewerUrl(opts.actualViewer)) {
+      console.log(`Using local test files: ${testFilesBaseUrl}`);
+    } else {
+      console.log(`Using test files ref: ${testFilesGitRef}`);
+    }
   } else {
-    console.log(`Using test files ref: ${testFilesGitRef}`);
+    if (opts.testUrls.length > 0 || opts.refUrls.length > 0) {
+      console.log(
+        `Using ${opts.testUrls.length} manual test/reference pair(s).`,
+      );
+    } else {
+      console.log(`Using WPT manifest: ${opts.wptManifestPath}`);
+      console.log(`Using WPT base URL: ${opts.wptBaseUrl}`);
+    }
   }
-  const approvedViewerMap = loadApprovedViewerMap(opts.outDir);
+  const approvedViewerMap =
+    opts.mode === "version-diff"
+      ? loadApprovedViewerMap(opts.outDir)
+      : new Map();
   if (approvedViewerMap.size > 0) {
     console.log(
       `Using approvedViewer override for ${approvedViewerMap.size} entry/entries.`,
     );
   }
-  const triageStatusMap = loadTriageStatusMap(opts.outDir);
+  const triageStatusMap = loadTriageStatusMap(
+    opts.outDir,
+    opts.mode === "version-diff"
+      ? path.join(repoRoot, "scripts", "layout-regression-triage.yaml")
+      : null,
+  );
   const targets = collectTargets(fileList, opts, approvedViewerMap);
 
   if (targets.length === 0) {
@@ -1279,16 +2865,44 @@ async function main() {
   }
 
   ensureDir(opts.outDir);
-  const baselineDir = path.join(opts.outDir, "baseline");
-  const actualDir = path.join(opts.outDir, "actual");
+  const actualDir = path.join(
+    opts.outDir,
+    opts.mode === "reftest" ? "test" : "actual",
+  );
+  const baselineDir = path.join(
+    opts.outDir,
+    opts.mode === "reftest" ? "reference" : "baseline",
+  );
   const diffDir = path.join(opts.outDir, "diff");
+  const actualReferenceDir = path.join(opts.outDir, "actual-reference");
+  const baselineReferenceDir = path.join(opts.outDir, "baseline-reference");
+  const actualReferenceDiffDir = path.join(
+    opts.outDir,
+    "actual-reference-diff",
+  );
+  const baselineReferenceDiffDir = path.join(
+    opts.outDir,
+    "baseline-reference-diff",
+  );
   // Clear previous run artifacts so stale files don't linger between runs.
-  for (const dir of [baselineDir, actualDir, diffDir]) {
+  const runDirs =
+    opts.mode === "reftest-diff"
+      ? [
+          baselineDir,
+          actualDir,
+          diffDir,
+          actualReferenceDir,
+          baselineReferenceDir,
+          actualReferenceDiffDir,
+          baselineReferenceDiffDir,
+        ]
+      : [baselineDir, actualDir, diffDir];
+  for (const dir of runDirs) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-  ensureDir(baselineDir);
-  ensureDir(actualDir);
-  ensureDir(diffDir);
+  for (const dir of runDirs) {
+    ensureDir(dir);
+  }
 
   const browser = await chromium.launch({
     headless: true,
@@ -1297,6 +2911,7 @@ async function main() {
 
   const differences = [];
   const errors = [];
+  const entries = [];
   let pageCountMismatches = 0;
   let screenshotMismatches = 0;
   let timeoutEntries = 0;
@@ -1315,14 +2930,75 @@ async function main() {
       viewportWidth: opts.viewportWidth,
       viewportHeight: opts.viewportHeight,
     };
-    const baselineP = limit(() =>
-      captureOneSide({
-        ...captureOpts,
-        url: target.baselineUrl,
-        key: slug,
-        dir: baselineDir,
-      }),
-    );
+
+    if (opts.mode === "reftest-diff") {
+      const actualTestPromise = limit(() =>
+        captureOneSide({
+          ...captureOpts,
+          url: target.actualUrl,
+          key: slug,
+          dir: actualDir,
+        }),
+      );
+      const baselineTestPromise = limit(() =>
+        captureOneSide({
+          ...captureOpts,
+          url: target.baselineUrl,
+          key: slug,
+          dir: baselineDir,
+        }),
+      );
+      const actualReferencePromises = target.references.map(
+        (reference, referenceIndex) => {
+          const referenceKey = `${slug}-r${String(referenceIndex + 1).padStart(2, "0")}`;
+          return {
+            reference: {
+              ...reference,
+              referenceUrl: reference.actualReferenceUrl,
+            },
+            referenceKey,
+            promise: limit(() =>
+              captureOneSide({
+                ...captureOpts,
+                url: reference.actualReferenceUrl,
+                key: referenceKey,
+                dir: actualReferenceDir,
+              }),
+            ),
+          };
+        },
+      );
+      const baselineReferencePromises = target.references.map(
+        (reference, referenceIndex) => {
+          const referenceKey = `${slug}-r${String(referenceIndex + 1).padStart(2, "0")}`;
+          return {
+            reference: {
+              ...reference,
+              referenceUrl: reference.baselineReferenceUrl,
+            },
+            referenceKey,
+            promise: limit(() =>
+              captureOneSide({
+                ...captureOpts,
+                url: reference.baselineReferenceUrl,
+                key: referenceKey,
+                dir: baselineReferenceDir,
+              }),
+            ),
+          };
+        },
+      );
+      return {
+        id,
+        slug,
+        target,
+        actualTestPromise,
+        baselineTestPromise,
+        actualReferencePromises,
+        baselineReferencePromises,
+      };
+    }
+
     const actualP = limit(() =>
       captureOneSide({
         ...captureOpts,
@@ -1331,48 +3007,287 @@ async function main() {
         dir: actualDir,
       }),
     );
-    return { id, slug, target, pair: Promise.all([baselineP, actualP]) };
+    const referencePromises = Array.isArray(target.references)
+      ? target.references.map((reference, referenceIndex) => {
+          const referenceKey = `${slug}-r${String(referenceIndex + 1).padStart(2, "0")}`;
+          return {
+            reference,
+            referenceKey,
+            promise: limit(() =>
+              captureOneSide({
+                ...captureOpts,
+                url: reference.baselineUrl,
+                key: referenceKey,
+                dir: baselineDir,
+              }),
+            ),
+          };
+        })
+      : [
+          {
+            reference: {
+              referenceFile: target.referenceFile,
+              relation: target.relation,
+              baselineUrl: target.baselineUrl,
+              baselinePageRanges: null,
+            },
+            referenceKey: slug,
+            promise: limit(() =>
+              captureOneSide({
+                ...captureOpts,
+                url: target.baselineUrl,
+                key: slug,
+                dir: baselineDir,
+              }),
+            ),
+          },
+        ];
+    return { id, slug, target, actualPromise: actualP, referencePromises };
   });
 
   // Process results in order: logs stay sequential while captures run ahead.
   for (let i = 0; i < entryPromises.length; i++) {
-    const { id, slug, target, pair } = entryPromises[i];
+    const entryPlan = entryPromises[i];
+    const { id, slug, target } = entryPlan;
     console.log(
       `[${i + 1}/${targets.length}] ${target.category} :: ${target.title}`,
     );
 
-    const [baseline, actual] = await pair;
+    if (opts.mode === "reftest-diff") {
+      const actual = await entryPlan.actualTestPromise;
+      const baseline = await entryPlan.baselineTestPromise;
+      const actualReferences = await Promise.all(
+        (entryPlan.actualReferencePromises || []).map(async (item) => ({
+          ...item,
+          result: await item.promise,
+        })),
+      );
+      const baselineReferences = await Promise.all(
+        (entryPlan.baselineReferencePromises || []).map(async (item) => ({
+          ...item,
+          result: await item.promise,
+        })),
+      );
+      const hasReferences =
+        actualReferences.length > 0 && baselineReferences.length > 0;
 
-    if (!baseline.ok || !actual.ok) {
+      const sideErrors = [];
+      if (!actual.ok) {
+        sideErrors.push({ side: opts.actualLabel, error: actual.error });
+      }
       if (!baseline.ok) {
-        const rawTriage = getTriageStatus(
+        sideErrors.push({ side: opts.baselineLabel, error: baseline.error });
+      }
+      for (const item of actualReferences) {
+        if (!item.result.ok) {
+          sideErrors.push({
+            side: `${opts.actualLabel}-reference`,
+            error: item.result.error,
+            referenceFile: item.reference.referenceFile,
+            baselineUrl: item.reference.referenceUrl,
+          });
+        }
+      }
+      for (const item of baselineReferences) {
+        if (!item.result.ok) {
+          sideErrors.push({
+            side: `${opts.baselineLabel}-reference`,
+            error: item.result.error,
+            referenceFile: item.reference.referenceFile,
+            baselineUrl: item.reference.referenceUrl,
+          });
+        }
+      }
+
+      for (const item of sideErrors) {
+        const triage = getTriageStatus(
           triageStatusMap,
           target.category,
           target.title,
           "error",
         );
-        const triage =
-          target.usedApprovedViewer && rawTriage.decision === "expected"
-            ? { status: "pending", decision: "" }
-            : rawTriage;
         errors.push({
           id,
           category: target.category,
           title: target.title,
           file: toArray(target.file),
-          side: opts.baselineLabel,
-          error: baseline.error,
-          baselineUrl: target.baselineUrl,
+          side: item.side,
+          error: item.error,
           actualUrl: target.actualUrl,
+          baselineUrl: item.baselineUrl || target.baselineUrl,
+          ...(item.referenceFile ? { referenceFile: item.referenceFile } : {}),
           triage,
         });
-        if (baseline.error.timeout) {
+        if (item.error.timeout) {
           timeoutEntries += 1;
         }
+      }
+
+      const actualOutcome =
+        hasReferences &&
+        actual.ok &&
+        actualReferences.every((item) => item.result.ok)
+          ? evaluateReferenceComparisons({
+              testCapture: actual,
+              testDir: actualDir,
+              testKey: slug,
+              testPageRanges: target.actualPageRanges,
+              referenceCaptures: actualReferences,
+              referenceDir: actualReferenceDir,
+              diffDir: actualReferenceDiffDir,
+              diffKeyPrefix: slug,
+              sourceType: target.sourceType,
+              maxDiffRatio: opts.maxDiffRatio,
+              pixelThreshold: opts.pixelThreshold,
+              skipScreenshots: opts.skipScreenshots,
+              writeDiffs: true,
+            })
+          : null;
+      const baselineOutcome =
+        hasReferences &&
+        baseline.ok &&
+        baselineReferences.every((item) => item.result.ok)
+          ? evaluateReferenceComparisons({
+              testCapture: baseline,
+              testDir: baselineDir,
+              testKey: slug,
+              testPageRanges: target.actualPageRanges,
+              referenceCaptures: baselineReferences,
+              referenceDir: baselineReferenceDir,
+              diffDir: baselineReferenceDiffDir,
+              diffKeyPrefix: slug,
+              sourceType: target.sourceType,
+              maxDiffRatio: opts.maxDiffRatio,
+              pixelThreshold: opts.pixelThreshold,
+              skipScreenshots: opts.skipScreenshots,
+              writeDiffs: true,
+            })
+          : null;
+
+      const actualStatus = !actual.ok
+        ? "ERROR"
+        : hasReferences
+          ? actualOutcome?.pass
+            ? "PASS"
+            : "FAIL"
+          : "MANUAL";
+      const baselineStatus = !baseline.ok
+        ? "ERROR"
+        : hasReferences
+          ? baselineOutcome?.pass
+            ? "PASS"
+            : "FAIL"
+          : "MANUAL";
+      const viewerDiff =
+        actual.ok && baseline.ok
+          ? compareCapturedViewerPair({
+              actual,
+              actualDir,
+              actualKey: slug,
+              baseline,
+              baselineDir,
+              baselineKey: slug,
+              diffDir,
+              diffKey: slug,
+              maxDiffRatio: opts.maxDiffRatio,
+              pixelThreshold: opts.pixelThreshold,
+              skipScreenshots: opts.skipScreenshots,
+            })
+          : { pageCountMismatch: false, pages: [] };
+      const viewerChanged =
+        viewerDiff.pageCountMismatch || viewerDiff.pages.length > 0;
+      const changeType = getCombinedChangeType({
+        actualStatus,
+        baselineStatus,
+        viewerChanged,
+      });
+      const combinedChangeType = hasReferences
+        ? changeType
+        : getManualCombinedChangeType(viewerChanged);
+
+      entries.push({
+        id,
+        category: target.category,
+        title: target.title,
+        file: toArray(target.file),
+        sourceUrl: target.sourceUrl,
+        actualStatus,
+        baselineStatus,
+        changeType: combinedChangeType,
+        viewerChanged,
+        actualUrl: target.actualUrl,
+        baselineUrl: target.baselineUrl,
+      });
+
+      if (viewerDiff.pageCountMismatch) {
+        pageCountMismatches += 1;
+      }
+      if (viewerDiff.pages.length > 0) {
+        screenshotMismatches += 1;
+      }
+
+      const shouldRecordDifference = hasReferences
+        ? actualStatus !== "PASS" || baselineStatus !== "PASS" || viewerChanged
+        : viewerChanged;
+
+      if (shouldRecordDifference) {
+        const triage = getTriageStatus(
+          triageStatusMap,
+          target.category,
+          target.title,
+          "difference",
+        );
+        differences.push({
+          id,
+          category: target.category,
+          title: target.title,
+          file: toArray(target.file),
+          classification: combinedChangeType,
+          actualStatus,
+          baselineStatus,
+          pageCountMismatch: viewerDiff.pageCountMismatch,
+          actual: {
+            totalPages: actual.ok ? actual.totalPages : null,
+            url: target.actualUrl,
+          },
+          baseline: {
+            totalPages: baseline.ok ? baseline.totalPages : null,
+            url: target.baselineUrl,
+          },
+          pages: viewerDiff.pages,
+          comparisons: [
+            ...(actualOutcome?.failingComparisons || []).map((item) => ({
+              ...item,
+              side: opts.actualLabel,
+              baselineUrl: item.referenceUrl,
+            })),
+            ...(baselineOutcome?.failingComparisons || []).map((item) => ({
+              ...item,
+              side: opts.baselineLabel,
+              baselineUrl: item.referenceUrl,
+            })),
+          ],
+          triage,
+        });
         console.log(
-          `  -> ${opts.baselineLabel} error: ${baseline.error.message} (triage: ${triage.status}${triage.decision ? `/${triage.decision}` : ""})`,
+          `  -> outcome=${combinedChangeType} (baseline=${baselineStatus}, actual=${actualStatus}, viewerChanged=${viewerChanged})`,
         );
       }
+
+      continue;
+    }
+
+    const { actualPromise, referencePromises } = entryPlan;
+
+    const actual = await actualPromise;
+    const baselines = await Promise.all(
+      referencePromises.map(async (item) => ({
+        ...item,
+        result: await item.promise,
+      })),
+    );
+
+    if (!actual.ok || baselines.some((item) => !item.result.ok)) {
       if (!actual.ok) {
         const rawTriage = getTriageStatus(
           triageStatusMap,
@@ -1389,10 +3304,11 @@ async function main() {
           category: target.category,
           title: target.title,
           file: toArray(target.file),
+          sourceUrl: target.sourceUrl,
           side: opts.actualLabel,
           error: actual.error,
+          baselineUrl: baselines[0]?.reference?.baselineUrl,
           actualUrl: target.actualUrl,
-          baselineUrl: target.baselineUrl,
           triage,
         });
         if (actual.error.timeout) {
@@ -1402,14 +3318,239 @@ async function main() {
           `  -> ${opts.actualLabel} error: ${actual.error.message} (triage: ${triage.status}${triage.decision ? `/${triage.decision}` : ""})`,
         );
       }
+      for (const item of baselines) {
+        if (item.result.ok) {
+          continue;
+        }
+        const rawTriage = getTriageStatus(
+          triageStatusMap,
+          target.category,
+          target.title,
+          "error",
+        );
+        const triage =
+          target.usedApprovedViewer && rawTriage.decision === "expected"
+            ? { status: "pending", decision: "" }
+            : rawTriage;
+        errors.push({
+          id,
+          category: target.category,
+          title: target.title,
+          file: toArray(target.file),
+          sourceUrl: target.sourceUrl,
+          side: opts.baselineLabel,
+          error: item.result.error,
+          actualUrl: target.actualUrl,
+          baselineUrl: item.reference.baselineUrl,
+          referenceFile: item.reference.referenceFile,
+          triage,
+        });
+        if (item.result.error.timeout) {
+          timeoutEntries += 1;
+        }
+        console.log(
+          `  -> ${opts.baselineLabel} error (${item.reference.referenceFile}): ${item.result.error.message} (triage: ${triage.status}${triage.decision ? `/${triage.decision}` : ""})`,
+        );
+      }
       continue;
     }
 
+    if (Array.isArray(target.references)) {
+      let comparisonResults = baselines.map((item, referenceIndex) => ({
+        referenceIndex,
+        referenceFile: item.reference.referenceFile,
+        baselineUrl: item.reference.baselineUrl,
+        baselineTotalPages: item.result.totalPages,
+        actualUrl: target.actualUrl,
+        actualTotalPages: actual.totalPages,
+        ...compareCapturedReference({
+          actual,
+          actualDir,
+          actualKey: slug,
+          actualPageRanges: target.actualPageRanges,
+          baseline: item.result,
+          baselineDir,
+          baselineKey: item.referenceKey,
+          baselinePageRanges: item.reference.baselinePageRanges,
+          diffDir,
+          diffKey: `${slug}-r${String(referenceIndex + 1).padStart(2, "0")}`,
+          fuzzy: item.reference.fuzzy || null,
+          maxDiffRatio: opts.maxDiffRatio,
+          pixelThreshold: opts.pixelThreshold,
+          relation: item.reference.relation,
+          skipScreenshots: opts.skipScreenshots,
+          useWptMatching: target.sourceType !== "custom-reftest",
+          writeDiffs: false,
+        }),
+      }));
+
+      const failedMismatchs = comparisonResults.filter(
+        (item) => item.relation === "!=" && !item.pass,
+      );
+      const matchResults = comparisonResults.filter(
+        (item) => item.relation === "==",
+      );
+      const overallPass =
+        failedMismatchs.length === 0 &&
+        (matchResults.length === 0 || matchResults.some((item) => item.pass));
+
+      if (!overallPass) {
+        const failingReferenceIndexes = new Set(
+          (failedMismatchs.length > 0
+            ? failedMismatchs
+            : matchResults.filter((item) => !item.pass)
+          ).map((item) => item.referenceIndex),
+        );
+
+        comparisonResults = comparisonResults.map((item) => {
+          if (
+            item.relation === "==" &&
+            !item.pass &&
+            failingReferenceIndexes.has(item.referenceIndex)
+          ) {
+            const baselineItem = baselines[item.referenceIndex];
+            return {
+              referenceIndex: item.referenceIndex,
+              referenceFile: item.referenceFile,
+              baselineUrl: item.baselineUrl,
+              baselineTotalPages: item.baselineTotalPages,
+              actualUrl: item.actualUrl,
+              actualTotalPages: item.actualTotalPages,
+              ...compareCapturedReference({
+                actual,
+                actualDir,
+                actualKey: slug,
+                actualPageRanges: target.actualPageRanges,
+                baseline: baselineItem.result,
+                baselineDir,
+                baselineKey: baselineItem.referenceKey,
+                baselinePageRanges: baselineItem.reference.baselinePageRanges,
+                diffDir,
+                diffKey: `${slug}-r${String(item.referenceIndex + 1).padStart(2, "0")}`,
+                fuzzy: baselineItem.reference.fuzzy || null,
+                maxDiffRatio: opts.maxDiffRatio,
+                pixelThreshold: opts.pixelThreshold,
+                relation: baselineItem.reference.relation,
+                skipScreenshots: opts.skipScreenshots,
+                useWptMatching: target.sourceType !== "custom-reftest",
+                writeDiffs: true,
+              }),
+            };
+          }
+          return item;
+        });
+
+        const failingComparisons = comparisonResults.filter((item) =>
+          failedMismatchs.length > 0
+            ? item.relation === "!=" && !item.pass
+            : item.relation === "==" && !item.pass,
+        );
+
+        const diffEntry = {
+          id,
+          category: target.category,
+          title: target.title,
+          file: toArray(target.file),
+          sourceUrl: target.sourceUrl,
+          pageCountMismatch: failingComparisons.some(
+            (item) => item.pageCountMismatch,
+          ),
+          actual: { totalPages: actual.totalPages, url: target.actualUrl },
+          baseline: failingComparisons[0]
+            ? {
+                totalPages: failingComparisons[0].baselineTotalPages,
+                url: failingComparisons[0].baselineUrl,
+              }
+            : null,
+          pages:
+            failingComparisons.length === 1 ? failingComparisons[0].pages : [],
+          comparisons: failingComparisons,
+        };
+
+        if (diffEntry.pageCountMismatch) {
+          pageCountMismatches += 1;
+        }
+        if (failingComparisons.some((item) => item.pages.length > 0)) {
+          screenshotMismatches += 1;
+        }
+
+        if (opts.exportHtmlDiff) {
+          for (const comparison of failingComparisons) {
+            if (comparison.relation !== "==" || comparison.pages.length === 0) {
+              continue;
+            }
+            try {
+              const baselineHtml = fs.readFileSync(
+                path.join(
+                  baselineDir,
+                  `${slug}-r${String(comparison.referenceIndex + 1).padStart(2, "0")}.html`,
+                ),
+                "utf8",
+              );
+              const actualHtml = fs.readFileSync(
+                path.join(actualDir, `${slug}.html`),
+                "utf8",
+              );
+              const formatOpts = { parser: "html", printWidth: 120 };
+              const baselineFormatted = await prettier.format(
+                baselineHtml,
+                formatOpts,
+              );
+              const actualFormatted = await prettier.format(
+                actualHtml,
+                formatOpts,
+              );
+              const patch = createTwoFilesPatch(
+                `baseline/${slug}-r${String(comparison.referenceIndex + 1).padStart(2, "0")}.html`,
+                `actual/${slug}.html`,
+                baselineFormatted,
+                actualFormatted,
+              );
+              if (/^[+-][^+-]/m.test(patch)) {
+                fs.writeFileSync(
+                  path.join(
+                    diffDir,
+                    `${slug}-r${String(comparison.referenceIndex + 1).padStart(2, "0")}.diff`,
+                  ),
+                  patch,
+                  "utf8",
+                );
+              }
+            } catch (error) {
+              console.warn(
+                `  -> skipped HTML diff export for ${slug}: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            }
+          }
+        }
+
+        const rawTriage = getTriageStatus(
+          triageStatusMap,
+          diffEntry.category,
+          diffEntry.title,
+          "difference",
+        );
+        const triage =
+          target.usedApprovedViewer && rawTriage.decision === "expected"
+            ? { status: "pending", decision: "" }
+            : rawTriage;
+        diffEntry.triage = triage;
+        differences.push(diffEntry);
+        console.log(
+          `  -> difference found (failedRefs=${failingComparisons.length}, pageCountMismatch=${diffEntry.pageCountMismatch}, triage=${triage.status}${triage.decision ? `/${triage.decision}` : ""})`,
+        );
+      }
+
+      continue;
+    }
+
+    const baseline = baselines[0].result;
     const diffEntry = {
       id,
       category: target.category,
       title: target.title,
       file: toArray(target.file),
+      sourceUrl: target.sourceUrl,
       pageCountMismatch: baseline.totalPages !== actual.totalPages,
       actual: { totalPages: actual.totalPages, url: target.actualUrl },
       baseline: { totalPages: baseline.totalPages, url: target.baselineUrl },
@@ -1529,12 +3670,16 @@ async function main() {
       timeoutEntries,
       pageCountMismatches,
       screenshotMismatches,
+      ...(entries.length > 0
+        ? { outcomes: summarizeCombinedEntries(entries) }
+        : {}),
     },
+    ...(entries.length > 0 ? { entries } : {}),
     differences,
     errors,
   };
 
-  const { jsonPath, mdPath } = writeReports(
+  const { jsonPath, mdPath, htmlPath } = writeReports(
     opts.outDir,
     result,
     triageStatusMap,
@@ -1544,6 +3689,7 @@ async function main() {
   console.log("\nDone.");
   console.log(`Report JSON: ${jsonPath}`);
   console.log(`Report MD:   ${mdPath}`);
+  console.log(`Report HTML: ${htmlPath}`);
   console.log(`Triage YAML: ${triagePath}`);
 
   const pendingTriage =

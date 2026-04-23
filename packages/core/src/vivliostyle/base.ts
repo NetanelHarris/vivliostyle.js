@@ -89,6 +89,13 @@ export function setResourceBaseURL(value: string): void {
   resourceBaseURL = value;
 }
 
+function getWptRawRepoRootURL(url: string): string | null {
+  const matched = stripFragmentAndQuery(url).match(
+    /^(https?:\/\/raw\.githubusercontent\.com\/web-platform-tests\/wpt\/master)(?:\/|$)/,
+  );
+  return matched ? matched[1] : null;
+}
+
 /**
  * @param relURL relative URL
  * @param baseURL base (absolute) URL
@@ -119,6 +126,10 @@ export function resolveURL(relURL: string, baseURL: string): string {
     return relURL;
   }
   if (relURL.match(/^\//)) {
+    const wptRawRepoRootURL = getWptRawRepoRootURL(baseURL);
+    if (wptRawRepoRootURL) {
+      return wptRawRepoRootURL + relURL;
+    }
     r = baseURL.match(/^(\w{2,}:\/\/[^\/]+)\//);
     if (r) {
       return r[1] + relURL;
@@ -191,6 +202,9 @@ export function convertSpecialURL(url: string): string {
     url = `${r[1]}//raw.githubusercontent.com/${r[2]}/${r[3] ? "" : "master/"}${
       r[4]
     }`;
+  } else if ((r = /^(https?:)\/\/wpt\.live\/(.*)$/.exec(url))) {
+    // Convert WPT live URL to raw GitHub URL so it can be fetched without CORS issues.
+    url = `${r[1]}//raw.githubusercontent.com/web-platform-tests/wpt/master/${r[2]}`;
   } else if (
     (r =
       /^(https?:)\/\/www\.aozora\.gr\.jp\/(cards\/[^/]+\/files\/[^/.]+\.html)$/.exec(

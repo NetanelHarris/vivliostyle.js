@@ -80,6 +80,117 @@ yarn test:layout-regression \
   --test-url "https://example.com/another-test.html"
 ```
 
+## Reftest mode
+
+The same script can also compare a WPT test document against its reference using
+the same Vivliostyle viewer. This is intended for manifest-driven CSS reftest
+smoke checks, and it can also compare any arbitrary pair of URLs.
+
+Current scope:
+
+- `items.reftest` and `items.print-reftest` from `MANIFEST.json`
+- `==` and `!=` references
+- multiple references per test
+- same viewer for test and reference
+- `page_ranges` metadata from the WPT manifest
+- WPT `fuzzy` metadata
+
+Manifest-driven WPT runs also add `&pixelRatio=0` to the viewer hash params by
+default so Vivliostyle renders at the browser's native device pixel ratio rather
+than the viewer's high-resolution fallback. This only applies to WPT manifest
+tests; manual `--test-url` / `--ref-url` pairs keep the normal viewer defaults.
+
+Defaults in this mode:
+
+- output directory: `artifacts/wpt-reftest`
+- WPT base URL: `https://wpt.live/`
+- WPT manifest path: `artifacts/wpt-reftest/MANIFEST.json`
+
+Download the latest published WPT manifest:
+
+```bash
+yarn download:wpt-manifest
+```
+
+Basic example using `wpt.live` as the test origin:
+
+```bash
+yarn test:reftest \
+  --actual-viewer dev \
+  --wpt-manifest ../wpt/MANIFEST.json \
+  --file css/css-break/abspos-in-opacity-000.html
+```
+
+You can narrow the WPT set by path prefix:
+
+```bash
+yarn test:reftest \
+  --actual-viewer dev \
+  --wpt-manifest ../wpt/MANIFEST.json \
+  --wpt-path-prefix css/css-break/ \
+  --limit 20
+```
+
+You can also compare arbitrary test/reference URLs without a manifest:
+
+```bash
+yarn test:reftest \
+  --actual-viewer dev \
+  --test-url https://wpt.live/css/css-break/abspos-in-opacity-000.html \
+  --ref-url https://wpt.live/css/css-break/abspos-in-opacity-000-ref.html
+```
+
+In `reftest` mode the script renders both the test and the reference with
+the same viewer and reports them as `test` vs `reference`.
+
+Like `version-diff`, this mode also writes `report.html`. The HTML report links
+the test name to the source document, links each viewer badge to the viewer URL,
+and shows per-page diff image links in the Change column when screenshot diffs
+exist.
+
+## Reftest-diff mode
+
+`reftest-diff` runs the test with both viewers and judges each side against the
+same reference set. This is the 3-way mode for deciding whether a viewer-to-viewer
+change is a regression, an improvement, or an expected change.
+
+- `baseline` viewer: test rendered with `--baseline-viewer`
+- `actual` viewer: test rendered with `--actual-viewer`
+- each side is compared against its own reference rendering
+- WPT manifest tests and manual `--test-url` / `--ref-url` pairs are both supported
+- WPT `items.manual` tests are also included in this mode
+- WPT manual tests are reported as `MANUAL` / `MANUAL`, and only viewer-to-viewer
+  change presence is reported as `changed` or `unchanged`
+
+Basic example:
+
+```bash
+yarn test:reftest-diff \
+  --actual-viewer canary \
+  --baseline-viewer stable \
+  --file css/css-break/abspos-in-opacity-000.html
+```
+
+Default output directory in this mode:
+
+- `artifacts/reftest-diff`
+
+The script now also writes `report.html` alongside `report.json` and `report.md`.
+The HTML report shows a color-coded table of PASS / FAIL per viewer and the overall
+change classification. Test names link to the original document, viewer badges link
+to the corresponding viewer page, Change badges can filter rows in place, and page-
+level diff image links appear in the Change column when screenshot diffs exist.
+
+Example limited to WPT manual tests:
+
+```bash
+yarn test:reftest-diff \
+  --actual-viewer canary \
+  --baseline-viewer stable \
+  --wpt-path-prefix css/CSS2/backgrounds/ \
+  --file css/CSS2/backgrounds/background-012.xht
+```
+
 ## Viewer spec
 
 `--actual-viewer` and `--baseline-viewer` accept:
@@ -235,11 +346,28 @@ Results are posted as a PR comment (updated on every new push). The workflow
 can also be triggered manually from the Actions tab with custom viewer specs,
 category filter, and limit.
 
+## HTML report
+
+All three modes write `report.html` alongside `report.json` and `report.md`.
+
+- Test names link to the original test document.
+- Viewer badges link to the exact viewer URL used for that side.
+- In `version-diff`, viewer badges are shown as `view` because the mode only
+  reports that a difference exists, not whether the new rendering is better or worse.
+- In `reftest` and `reftest-diff`, PASS / FAIL / ERROR style badges are shown when
+  the mode has that semantic information.
+- Change badges can be clicked to filter the table by change type.
+- When screenshot diffs exist, the Change column also shows page-level diff links
+  such as `p1` or `r1-p1`.
+
 ## npm scripts
 
 | Script | Description |
 |--------|-------------|
 | `yarn test:layout-regression` | Run the comparison |
+| `yarn test:reftest` | Run WPT/custom reftests with one viewer |
+| `yarn test:reftest-diff` | Run WPT/custom reftests with two viewers |
+| `yarn download:wpt-manifest` | Download the latest published WPT `MANIFEST.json` |
 | `yarn test:layout-regression:triage` | Summarize `artifacts/layout-regression/triage.yaml` |
 | `yarn test:layout-regression:triage --show-pending` | Also list untriaged entries |
 | `yarn test:layout-regression:triage:save` | Copy triage.yaml → scripts/layout-regression-triage.yaml |
@@ -248,12 +376,13 @@ category filter, and limit.
 ## Options
 
 ```
+--mode <name>                version-diff (default), reftest, or reftest-diff
 --category <name>            Run only this category (repeatable, case-insensitive)
 --title-includes <text>      Run entries whose title includes text (repeatable, case-insensitive)
 --file <path>                Run entries by file path relative to packages/core/test/files/
                              (repeatable, case-insensitive)
 --limit <number>             Stop after N entries
---out-dir <path>             Output directory (default: artifacts/layout-regression)
+--out-dir <path>             Output directory
 --timeout <seconds>          Timeout per page (default: 30)
 --max-diff-ratio <number>    Allowed ratio of diff pixels (default: 0.00002)
 --pixel-threshold <0..1>     Per-pixel color diff sensitivity (default: 0.1)
@@ -271,19 +400,35 @@ category filter, and limit.
 --actual-viewer-params <s>   Extra hash params only for actual side
 --baseline-viewer-params <s> Extra hash params only for baseline side
 --test-url <url>             Additional test URL (repeatable)
+--ref-url <url>              Reference URL paired with --test-url (repeatable)
+--wpt-manifest <path>        WPT MANIFEST.json path
+--wpt-base-url <url>         Base URL for WPT tests (default: https://wpt.live/)
+--wpt-path-prefix <path>     Restrict WPT paths by prefix (repeatable)
 -h, --help                   Show this help
 ```
 
 ## Output
 
-Results are written to `artifacts/layout-regression/` (by default):
+Default output directories depend on mode:
+
+- `version-diff`: `artifacts/layout-regression`
+- `reftest`: `artifacts/wpt-reftest`
+- `reftest-diff`: `artifacts/reftest-diff`
+
+All modes write these report files:
 
 - `report.json` — full results in JSON (includes triage info per item and triage summary counts)
 - `report.md` — human-readable summary
-- `baseline/*.png` — baseline screenshots
-- `actual/*.png` — actual screenshots
-- `diff/*.png` — diff images (only pages with diff above threshold)
+- `report.html` — interactive HTML summary with source/viewer links, row filtering, and page-level diff links
 - `triage.yaml` — triage template (pre-filled with carried-over decisions)
+
+Screenshot directories depend on mode:
+
+- `version-diff`: `baseline/*.png`, `actual/*.png`, `diff/*.png`
+- `reftest`: `reference/*.png`, `test/*.png`, `diff/*.png`
+- `reftest-diff`: `baseline/*.png`, `actual/*.png`, `diff/*.png`,
+  `baseline-reference/*.png`, `actual-reference/*.png`,
+  `baseline-reference-diff/*.png`, `actual-reference-diff/*.png`
 
 A difference is reported when either:
 
