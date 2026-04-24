@@ -16,11 +16,13 @@
 
 ## セットアップ
 
-依存パッケージと Playwright Chromium を一度だけインストール:
+依存パッケージと Playwright ブラウザを一度だけインストール:
 
 ```bash
 yarn install
 npx playwright install chromium --with-deps
+# Firefox や WebKit も使う場合:
+npx playwright install firefox webkit --with-deps
 ```
 
 ## 基本的な実行
@@ -72,7 +74,8 @@ yarn test:layout-regression \
 ## カスタムテスト URL
 
 `--test-url` で任意の Web URL をテスト対象に追加できます（繰り返し指定可）。
-ブラウザの CORS 制限は無効化されているため、任意の Web コンテンツをテストできます:
+デフォルトブラウザの Chromium では CORS 制限が無効化されているため、任意の Web コンテンツをテストできます。
+ただし `--browser firefox` や `--browser webkit` では CORS の無効化に対応していないため、クロスオリジンのコンテンツはロードできない場合があります。
 
 ```bash
 yarn test:layout-regression \
@@ -361,6 +364,7 @@ PR 実行時は `--actual-viewer` が自動的に `git-<branch>` に設定され
 
 ```
 --mode <name>                version-diff（デフォルト）, reftest, reftest-diff
+--browser <name>             使用するブラウザ: chromium（デフォルト）, firefox, webkit
 --category <name>            カテゴリーで絞り込み（繰り返し指定可・大文字小文字を区別しない）
 --title-includes <text>      タイトルの部分文字列で絞り込み（繰り返し指定可・大文字小文字を区別しない）
 --file <path>                packages/core/test/files/ からの相対パスで絞り込み

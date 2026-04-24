@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium } from "playwright";
+import { chromium, firefox, webkit } from "playwright";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import yaml from "js-yaml";
@@ -42,6 +42,7 @@ const wptReftestViewerParams = "&pixelRatio=0";
 
 const defaults = {
   mode: "version-diff",
+  browser: "chromium",
   outDir: "",
   timeoutSec: 30,
   maxDiffRatio: 0.00002,
@@ -320,6 +321,10 @@ function parseArgs(argv) {
       opts.viewportWidth = Number(argv[++i]);
     } else if (a === "--viewport-height") {
       opts.viewportHeight = Number(argv[++i]);
+    } else if (a === "--browser") {
+      opts.browser = String(argv[++i] || "")
+        .trim()
+        .toLowerCase();
     } else if (a === "--skip-screenshots") {
       opts.skipScreenshots = true;
     } else if (a === "--concurrency") {
@@ -378,6 +383,11 @@ function parseArgs(argv) {
     if (!actualLabelSet) {
       opts.actualLabel = resolved.label ?? "actual";
     }
+  }
+
+  const validBrowsers = ["chromium", "firefox", "webkit"];
+  if (!validBrowsers.includes(opts.browser)) {
+    throw new Error(`--browser must be one of: ${validBrowsers.join(", ")}`);
   }
 
   if (!Number.isFinite(opts.timeoutSec) || opts.timeoutSec <= 0) {
@@ -512,6 +522,7 @@ Options:
   --pixel-threshold <0..1>   Pixel diff sensitivity (default 0.1)
   --viewport-width <number>  Browser viewport width
   --viewport-height <number> Browser viewport height
+  --browser <name>           Browser to use: chromium (default), firefox, or webkit
   --skip-screenshots         Skip image capture/compare, check page counts only
   --concurrency <number>     Number of entries to capture in parallel (default: os.availableParallelism())
   --export-html              Export rendered HTML snapshot for each entry
@@ -1516,6 +1527,12 @@ async function capturePages({
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
   await waitForViewerReady(page, timeoutMs);
 
+  // Hide Vercel's live-feedback widget that gets injected into Vercel preview
+  // deployments — it would appear in screenshots and cause spurious diffs.
+  await page.addStyleTag({
+    content: "vercel-live-feedback { display: none !important; }",
+  });
+
   const errorMsg = await checkViewerError(page);
   if (errorMsg) {
     throw new Error(`Viewer error: ${errorMsg}`);
@@ -1580,14 +1597,14 @@ async function captureOneSide({
   viewportWidth,
   viewportHeight,
 }) {
-  const context = await browser.newContext({
-    viewport: { width: viewportWidth, height: viewportHeight },
-    // Use device scale factor 2 to get more accurate pixel diffs.
-    deviceScaleFactor: 2,
-  });
-  const page = await context.newPage();
-
+  let context;
   try {
+    context = await browser.newContext({
+      viewport: { width: viewportWidth, height: viewportHeight },
+      // Use device scale factor 2 to get more accurate pixel diffs.
+      deviceScaleFactor: 2,
+    });
+    const page = await context.newPage();
     const captured = await capturePages({
       page,
       url,
@@ -1601,7 +1618,13 @@ async function captureOneSide({
   } catch (err) {
     return { ok: false, error: toComparableError(err) };
   } finally {
-    await page.close();
+    if (context) {
+      try {
+        await context.close();
+      } catch (closeErr) {
+        console.warn("Failed to close browser context:", closeErr);
+      }
+    }
   }
 }
 
@@ -2441,15 +2464,18 @@ function writeReports(outDir, result, triageStatusMap) {
 </tr>`,
         )
         .concat(
-          resultWithTriage.errors.map(
-            (item) => `<tr>
+          resultWithTriage.errors.map((item) => {
+            const isBaselineSide =
+              item.side === result.labels.baseline ||
+              item.side.startsWith(result.labels.baseline + "-");
+            return `<tr>
   <td class="test-path">${renderAnchor(item.sourceUrl, escapeHtml(item.title), "test-link")}</td>
-  <td>${renderFallbackViewerBadge(item.baselineUrl)}</td>
-  <td>${renderBadge("ERROR", "error", item.actualUrl)}</td>
+  <td>${isBaselineSide ? renderBadge("ERROR", "error", item.baselineUrl) : renderFallbackViewerBadge(item.baselineUrl)}</td>
+  <td>${isBaselineSide ? renderFallbackViewerBadge(item.actualUrl) : renderBadge("ERROR", "error", item.actualUrl)}</td>
   <td data-change-type="error">${renderChangeCell("error")}</td>
   <td>${escapeHtml(`${item.side}: ${item.error.message}`)}</td>
-</tr>`,
-          ),
+</tr>`;
+          }),
         )
         .join("\n");
   const html = `<!doctype html>
@@ -2904,9 +2930,13 @@ async function main() {
     ensureDir(dir);
   }
 
-  const browser = await chromium.launch({
+  const browserEngines = { chromium, firefox, webkit };
+  const browserEngine = browserEngines[opts.browser] ?? chromium;
+  const launchArgs =
+    opts.browser === "chromium" ? { args: ["--disable-web-security"] } : {};
+  const browser = await browserEngine.launch({
     headless: true,
-    args: ["--disable-web-security"],
+    ...launchArgs,
   });
 
   const differences = [];
@@ -2919,6 +2949,14 @@ async function main() {
   // Dispatch all captures into a bounded concurrency pool.
   // Each entry produces a Promise that resolves with [baseline, actual].
   const limit = pLimit(opts.concurrency);
+
+  // Handle Ctrl+C: exit immediately so pending async tasks can't keep logging.
+  // The browser subprocess will be cleaned up by the OS when this process exits.
+  process.once("SIGINT", () => {
+    process.stdout.write("\nInterrupted.\n");
+    process.exit(130);
+  });
+
   const entryPromises = targets.map((target, i) => {
     const id = String(i + 1).padStart(4, "0");
     const slug = `${id}-${sanitizeName(target.category)}-${sanitizeName(target.title)}`;

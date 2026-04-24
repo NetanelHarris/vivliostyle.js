@@ -16,11 +16,13 @@ Persistent triage decisions are stored in `scripts/layout-regression-triage.yaml
 
 ## Setup
 
-Install dependencies and Playwright Chromium once:
+Install dependencies and Playwright browsers once:
 
 ```bash
 yarn install
 npx playwright install chromium --with-deps
+# To also use Firefox or WebKit:
+npx playwright install firefox webkit --with-deps
 ```
 
 ## Basic run
@@ -72,7 +74,10 @@ When different filter options are combined, they are AND conditions.
 ## Custom test URLs
 
 Any web URL can be used as a test target with `--test-url` (repeatable).
-CORS restrictions are disabled in the browser, so arbitrary web content can be tested:
+CORS restrictions are disabled in Chromium (the default browser), so arbitrary
+web content can be tested. Note that `--browser firefox` and `--browser webkit`
+do not support disabling CORS, so cross-origin content may fail to load with
+those browsers.
 
 ```bash
 yarn test:layout-regression \
@@ -377,6 +382,7 @@ All three modes write `report.html` alongside `report.json` and `report.md`.
 
 ```
 --mode <name>                version-diff (default), reftest, or reftest-diff
+--browser <name>             Browser to use: chromium (default), firefox, or webkit
 --category <name>            Run only this category (repeatable, case-insensitive)
 --title-includes <text>      Run entries whose title includes text (repeatable, case-insensitive)
 --file <path>                Run entries by file path relative to packages/core/test/files/
