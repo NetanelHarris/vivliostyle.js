@@ -1755,12 +1755,36 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
             // Footnote content could not be placed (e.g., widows/orphans
             // constraints prevented fragmentation). Fail the layout so
             // the footnote is deferred to the next page.
-            // Exception: during iterative footnote sizing (Issue #1879),
-            // allow empty fragments so the retry cycle can continue.
+            // Exception: during iterative footnote sizing, an empty first
+            // fragment can mean we need to start or continue the retry cycle
+            // instead of deferring the whole footnote. This is what lets the
+            // moved-call multicol case retry on the current page (#1891).
             const floatContext = context.getPageFloatLayoutContext(
               firstFloat.floatReference,
             );
             if (floatContext.footnoteMaxBlockSize == null) {
+              if (
+                floatContext.initFootnoteRetryFromEmptyFragment(
+                  firstFloat,
+                  floatArea,
+                )
+              ) {
+                if (floatArea.element.parentNode) {
+                  floatArea.element.parentNode.removeChild(floatArea.element);
+                }
+                this.layoutSinglePageFloatFragment(
+                  continuations,
+                  floatSide,
+                  clearSide,
+                  allowFragmented,
+                  strategy,
+                  anchorEdge,
+                  pageFloatFragment,
+                ).then((retryResult) => {
+                  frame.finish(retryResult);
+                });
+                return;
+              }
               failed = true;
             }
           }
@@ -2101,6 +2125,10 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
         0,
       );
       const nodeContextAfter = this.setFloatAnchorViewNode(nodeContext);
+      // Record the anchor before fragment lookup so empty-fragment retries can
+      // still tell that this footnote call has already been encountered on the
+      // current page (Issue #1891).
+      context.markPageFloatAnchorSeen(float);
       const pageFloatFragment = strategy.findPageFloatFragment(float, context);
       const continuation = new PageFloats.PageFloatContinuation(
         float,

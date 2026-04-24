@@ -651,18 +651,23 @@ export class PageFloatLayoutContext
     );
   }
 
+  markPageFloatAnchorSeen(float: PageFloat) {
+    if (!("footnotePolicy" in float)) {
+      return;
+    }
+    let ctx: PageFloatLayoutContext | null = this;
+    while (ctx) {
+      ctx.footnoteAnchorsSeen.add(float.getId());
+      ctx = ctx.parent ?? ctx.outerContext;
+    }
+  }
+
   registerPageFloatAnchor(float: PageFloat, anchorViewNode: Node) {
     this.floatAnchors[float.getId()] = anchorViewNode;
     // Record that this float's anchor has been seen at least once on this
     // page, propagating up the context hierarchy so the page-level context
     // can detect feedback loops. (Issue #1879)
-    if ("footnotePolicy" in float) {
-      let ctx: PageFloatLayoutContext | null = this;
-      while (ctx) {
-        ctx.footnoteAnchorsSeen.add(float.getId());
-        ctx = ctx.parent ?? ctx.outerContext;
-      }
-    }
+    this.markPageFloatAnchorSeen(float);
   }
 
   collectPageFloatAnchors() {
@@ -807,6 +812,75 @@ export class PageFloatLayoutContext
     return result;
   }
 
+  private hasRootMultiColumnFootnoteContext(): boolean {
+    return this.children.some((child) => {
+      let rootColumnCount = 0;
+      for (const grandchild of child.children) {
+        if (grandchild.generatingNodePosition) {
+          continue;
+        }
+        rootColumnCount += 1;
+        if (rootColumnCount > 1) {
+          return true;
+        }
+      }
+      return false;
+    });
+  }
+
+  private hasNonRootMultiColumnFootnoteContext(): boolean {
+    return this.children.some((child) =>
+      child.children.some((grandchild) => {
+        const elem = grandchild.getContainer()?.element;
+        return elem != null && LayoutHelper.containsNonRootMultiColumn(elem);
+      }),
+    );
+  }
+
+  private hasMultiColumnFootnoteContext(): boolean {
+    return (
+      this.hasRootMultiColumnFootnoteContext() ||
+      this.hasNonRootMultiColumnFootnoteContext()
+    );
+  }
+
+  private trySetFootnoteRetryMaxBlockSize(currentOuter: number): boolean {
+    const newMax =
+      this.footnoteMaxBlockSize != null
+        ? this.footnoteMaxBlockSize / 2
+        : currentOuter / 2;
+    if (newMax < MIN_FOOTNOTE_BLOCK_SIZE) {
+      return false;
+    }
+    this.footnoteMaxBlockSize = newMax;
+    return true;
+  }
+
+  initFootnoteRetryFromEmptyFragment(
+    float: PageFloat,
+    area: LayoutType.PageFloatArea,
+  ): boolean {
+    // Issue #1891: when the footnote call moves later in a multicol flow, the
+    // first attempt may produce an empty fragment before footnoteMaxBlockSize
+    // has been initialized. Seed the usual size-reduction loop from the space
+    // currently available on the page instead of deferring the whole footnote.
+    if (
+      !(
+        "footnotePolicy" in float &&
+        this.footnoteMaxBlockSize == null &&
+        this.footnoteAnchorsSeen.has(float.getId()) &&
+        this.hasMultiColumnFootnoteContext()
+      )
+    ) {
+      return false;
+    }
+    const availableOuterBlockSize =
+      (area.vertical ? area.width : area.height) +
+      area.getInsetBefore() +
+      area.getInsetAfter();
+    return this.trySetFootnoteRetryMaxBlockSize(availableOuterBlockSize);
+  }
+
   checkAndForbidNotAllowedFloat(): boolean {
     if (this.checkAndForbidFloatFollowingDeferredFloat()) {
       return true;
@@ -828,34 +902,17 @@ export class PageFloatLayoutContext
           // anchor can't be reached (feedback loop). Halving the size and
           // retrying lets the footnote fragment at a size that still allows
           // the anchor to be reached during re-layout.
-          // Detect multi-column: either root multicol (multiple column
-          // contexts) or non-root multicol (browser-native columns inside
-          // a single column context).
           const hasMultiColumn =
             isFootnote &&
             this.footnoteAnchorsSeen.has(notAllowedFloat.getId()) &&
-            (this.children.some((child) => child.children.length > 1) ||
-              this.children.some((child) =>
-                child.children.some((grandchild) => {
-                  const elem = grandchild.getContainer()?.element;
-                  return (
-                    elem != null &&
-                    LayoutHelper.containsNonRootMultiColumn(elem)
-                  );
-                }),
-              ));
+            this.hasMultiColumnFootnoteContext();
           if (hasMultiColumn) {
             const currentOuter =
               fragment.area.computedBlockSize +
               fragment.area.getInsetBefore() +
               fragment.area.getInsetAfter();
-            const newMax =
-              this.footnoteMaxBlockSize != null
-                ? this.footnoteMaxBlockSize / 2
-                : currentOuter / 2;
-            if (newMax >= MIN_FOOTNOTE_BLOCK_SIZE) {
+            if (this.trySetFootnoteRetryMaxBlockSize(currentOuter)) {
               // Retry with reduced size
-              this.footnoteMaxBlockSize = newMax;
               this.removePageFloatFragment(fragment);
               this.removeEndFloatFragments(fragment.floatSide);
               return true;
