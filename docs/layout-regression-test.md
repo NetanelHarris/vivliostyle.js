@@ -310,6 +310,9 @@ Recommended workflow:
    On the next run, the entry will be compared against the approved viewer
    instead of the default baseline. If the result drifts again, `decision`
    is reset and re-evaluation is prompted.
+  In `reftest-diff` mode, entries whose `actual` side already passes and are
+  classified as `improvement` are omitted from `triage.yaml` because they do
+  not need a triage decision.
 5. View a summary with:
    ```bash
    yarn test:layout-regression:triage

@@ -302,6 +302,9 @@ yarn test:layout-regression \
    - `expected` — 意図的な改善または既知の差分
    - `skip` — ノイズまたは無関係
 4. 必要に応じて `approvedViewer` にビューワー指定（例: `git-fix-issue1775`、`v2.35.0`）を設定すると、このエントリの次回実行時にそのビューワーをベースラインとして比較します。比較結果が再び差分になった場合は `decision` がリセットされ、再評価が促されます。
+  `reftest-diff` モードでは、`actual` 側がすでに PASS していて
+  `improvement` と判定されたエントリは、トリアージ不要のため
+  `triage.yaml` には出力されません。
 5. サマリーを確認:
    ```bash
    yarn test:layout-regression:triage
