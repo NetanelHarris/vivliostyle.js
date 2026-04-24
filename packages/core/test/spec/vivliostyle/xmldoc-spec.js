@@ -270,5 +270,35 @@ describe("xml-doc", function () {
         complete();
       });
     });
+
+    it("returns a non-null XMLDocHolder for an empty response body", function (done) {
+      var docStore = adapt_xmldoc.newXMLDocStore();
+      var result = adapt_xmldoc.parseXMLResource(
+        { responseText: "", contentType: "text/html", url: "blank.html" },
+        docStore,
+      );
+      result.then(function (docHolder) {
+        expect(docHolder).not.toBeNull();
+        expect(docHolder.document).not.toBeNull();
+        done();
+      });
+    });
+
+    it("returns null for a null response body (fetch failure)", function (done) {
+      var docStore = adapt_xmldoc.newXMLDocStore();
+      var result = adapt_xmldoc.parseXMLResource(
+        {
+          responseText: null,
+          responseXML: null,
+          contentType: null,
+          url: "blank.html",
+        },
+        docStore,
+      );
+      result.then(function (docHolder) {
+        expect(docHolder).toBeNull();
+        done();
+      });
+    });
   });
 });
