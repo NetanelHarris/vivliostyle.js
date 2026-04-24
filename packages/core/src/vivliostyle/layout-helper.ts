@@ -251,9 +251,17 @@ export function hasNonRootMultiColumnStyle(element: Element): boolean {
  * non-root multi-column layout (via inline style).
  */
 export function containsNonRootMultiColumn(element: Element): boolean {
-  if (hasNonRootMultiColumnStyle(element)) return true;
+  if (
+    !element.hasAttribute("data-vivliostyle-column") &&
+    hasNonRootMultiColumnStyle(element)
+  ) {
+    return true;
+  }
   for (const descendant of element.querySelectorAll("*")) {
-    if (hasNonRootMultiColumnStyle(descendant)) {
+    if (
+      !descendant.hasAttribute("data-vivliostyle-column") &&
+      hasNonRootMultiColumnStyle(descendant)
+    ) {
       return true;
     }
   }

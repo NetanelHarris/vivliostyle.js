@@ -718,6 +718,7 @@ export namespace PageFloats {
     findPageFloatFragment(float: PageFloat): PageFloatFragment | null;
     hasFloatFragments(condition?: (p1: PageFloatFragment) => boolean): boolean;
     hasContinuingFloatFragmentsInFlow(flowName: string): boolean;
+    markPageFloatAnchorSeen(float: PageFloat): void;
     registerPageFloatAnchor(float: PageFloat, anchorViewNode: Node): void;
     collectPageFloatAnchors(): any;
     isAnchorAlreadyAppeared(floatId: PageFloatID): boolean;
@@ -735,6 +736,10 @@ export namespace PageFloats {
       flowName?: string | null,
     ): PageFloatContinuation[];
     getFloatsDeferredToNextInChildContexts(): PageFloat[];
+    initFootnoteRetryFromEmptyFragment(
+      float: PageFloat,
+      area: Layout.PageFloatArea,
+    ): boolean;
     checkAndForbidNotAllowedFloat(): boolean;
     checkAndForbidFloatFollowingDeferredFloat(): boolean;
     finish(): void;

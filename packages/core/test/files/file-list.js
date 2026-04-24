@@ -973,6 +973,11 @@ module.exports = [
         title: "Footnote fragmentation in multi-column (Issue #1879)",
       },
       {
+        file: "footnotes/footnote-fragmentation-multicol-moved-call.html",
+        title:
+          "Footnote fragmentation in multi-column after moving call (Issue #1891)",
+      },
+      {
         file: "footnotes/footnote-area-max-height.html",
         title: "Footnote area max-height (Issue #1878)",
       },
