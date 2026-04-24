@@ -2144,6 +2144,9 @@ function summarizeTriage(items, type, triageStatusMap) {
   let pending = 0;
   let triaged = 0;
   for (const item of items) {
+    if (item.triageRequired === false) {
+      continue;
+    }
     // Prefer already-computed triage (may include approvedViewer drift override)
     const status =
       item.triage ??
@@ -2159,6 +2162,12 @@ function summarizeTriage(items, type, triageStatusMap) {
 
 function withTriageInfo(items, type, triageStatusMap) {
   return items.map((item) => {
+    if (item.triageRequired === false) {
+      return {
+        ...item,
+        triage: { status: "not-needed", decision: "" },
+      };
+    }
     // Prefer already-computed triage (may include approvedViewer drift override)
     const triage =
       item.triage ??
@@ -2212,6 +2221,10 @@ function writeReports(outDir, result, triageStatusMap) {
   fs.writeFileSync(jsonPath, JSON.stringify(resultWithTriage, null, 2), "utf8");
 
   const lines = [];
+  const formatTriageLabel = (triage) =>
+    triage.status === "not-needed"
+      ? "not-needed"
+      : `${triage.status}${triage.decision ? ` (${triage.decision})` : ""}`;
   lines.push(
     `# ${result.labels.actual} vs ${result.labels.baseline} comparison report`,
   );
@@ -2241,42 +2254,126 @@ function writeReports(outDir, result, triageStatusMap) {
     for (const diff of resultWithTriage.differences) {
       const triage = diff.triage;
       lines.push(`- [${diff.id}] [${diff.category}] ${diff.title}`);
-      lines.push(
-        `  triage: ${triage.status}${triage.decision ? ` (${triage.decision})` : ""}`,
-      );
+      lines.push(`  triage: ${formatTriageLabel(triage)}`);
       if (diff.classification) {
         lines.push(
           `  outcome: ${diff.classification} (baseline=${diff.baselineStatus}, actual=${diff.actualStatus})`,
         );
       }
       if (Array.isArray(diff.comparisons) && diff.comparisons.length > 0) {
-        for (const comparison of diff.comparisons) {
-          lines.push(
-            `  reference: ${comparison.referenceFile} (${comparison.relation})`,
+        if (diff.comparisons.some((comparison) => comparison.side)) {
+          const uniqueReferences = diff.comparisons.filter(
+            (comparison, index, comparisons) =>
+              comparisons.findIndex(
+                (item) =>
+                  item.referenceFile === comparison.referenceFile &&
+                  item.relation === comparison.relation,
+              ) === index,
           );
-          if (comparison.pageCountMismatch) {
+          const hasMultipleReferences = uniqueReferences.length > 1;
+          const comparisonsBySide = new Map();
+          for (const comparison of diff.comparisons) {
+            const side = comparison.side || "reference";
+            const items = comparisonsBySide.get(side) || [];
+            items.push(comparison);
+            comparisonsBySide.set(side, items);
+          }
+          for (const comparison of uniqueReferences) {
             lines.push(
-              `  selected pages: ${result.labels.actual}=[${formatPageList(comparison.actualPageNumbers)}], ${result.labels.baseline}=[${formatPageList(comparison.baselinePageNumbers)}]`,
+              `  reference: ${comparison.referenceFile} (${comparison.relation})`,
             );
           }
-          if (comparison.unexpectedEquality) {
+          for (const [side, comparisons] of comparisonsBySide) {
+            const sideStatus =
+              side === result.labels.actual
+                ? diff.actualStatus
+                : side === result.labels.baseline
+                  ? diff.baselineStatus
+                  : null;
+            const sideTestUrl =
+              side === result.labels.actual
+                ? diff.actual.url
+                : side === result.labels.baseline
+                  ? diff.baseline?.url
+                  : null;
+            if (sideStatus) {
+              lines.push(`  ${side} result: ${sideStatus}`);
+            }
+            if (sideTestUrl) {
+              lines.push(`  ${side} test: ${sideTestUrl}`);
+            }
+            for (const comparison of comparisons) {
+              if (comparison.pageCountMismatch) {
+                lines.push(
+                  `  ${side} selected pages${
+                    hasMultipleReferences
+                      ? ` (${comparison.referenceFile})`
+                      : ""
+                  }: test=[${formatPageList(comparison.actualPageNumbers)}], reference=[${formatPageList(comparison.baselinePageNumbers)}]`,
+                );
+              }
+              if (comparison.unexpectedEquality) {
+                lines.push(
+                  `  ${side} unexpected equality${
+                    hasMultipleReferences
+                      ? ` (${comparison.referenceFile})`
+                      : ""
+                  }: comparison matched but relation is !=`,
+                );
+              }
+              for (const p of comparison.pages) {
+                const pageLabel =
+                  p.actualPage === p.baselinePage
+                    ? `page ${p.actualPage}`
+                    : `test page ${p.actualPage} vs reference page ${p.baselinePage}`;
+                lines.push(
+                  `  ${side} ${pageLabel}${
+                    hasMultipleReferences
+                      ? ` (${comparison.referenceFile})`
+                      : ""
+                  }: diffRatio=${p.diffRatio}, diffPixels=${p.diffPixels}${
+                    p.dimensionMismatch ? " (dimension mismatch)" : ""
+                  }`,
+                );
+              }
+              lines.push(
+                `  ${side} reference render${
+                  hasMultipleReferences ? ` (${comparison.referenceFile})` : ""
+                }: ${comparison.baselineUrl}`,
+              );
+            }
+          }
+        } else {
+          for (const comparison of diff.comparisons) {
             lines.push(
-              "  unexpected equality: comparison matched but relation is !=",
+              `  reference: ${comparison.referenceFile} (${comparison.relation})`,
+            );
+            if (comparison.pageCountMismatch) {
+              lines.push(
+                `  selected pages: ${result.labels.actual}=[${formatPageList(comparison.actualPageNumbers)}], ${result.labels.baseline}=[${formatPageList(comparison.baselinePageNumbers)}]`,
+              );
+            }
+            if (comparison.unexpectedEquality) {
+              lines.push(
+                "  unexpected equality: comparison matched but relation is !=",
+              );
+            }
+            for (const p of comparison.pages) {
+              const pageLabel =
+                p.actualPage === p.baselinePage
+                  ? `page ${p.actualPage}`
+                  : `${result.labels.actual} page ${p.actualPage} vs ${result.labels.baseline} page ${p.baselinePage}`;
+              lines.push(
+                `  ${pageLabel}: diffRatio=${p.diffRatio}, diffPixels=${p.diffPixels}${
+                  p.dimensionMismatch ? " (dimension mismatch)" : ""
+                }`,
+              );
+            }
+            lines.push(`  ${result.labels.actual}: ${diff.actual.url}`);
+            lines.push(
+              `  ${result.labels.baseline} render: ${comparison.baselineUrl}`,
             );
           }
-          for (const p of comparison.pages) {
-            const pageLabel =
-              p.actualPage === p.baselinePage
-                ? `page ${p.actualPage}`
-                : `${result.labels.actual} page ${p.actualPage} vs ${result.labels.baseline} page ${p.baselinePage}`;
-            lines.push(
-              `  ${pageLabel}: diffRatio=${p.diffRatio}, diffPixels=${p.diffPixels}${
-                p.dimensionMismatch ? " (dimension mismatch)" : ""
-              }`,
-            );
-          }
-          lines.push(`  ${result.labels.actual}: ${diff.actual.url}`);
-          lines.push(`  ${result.labels.baseline}: ${comparison.baselineUrl}`);
         }
       } else {
         if (diff.pageCountMismatch) {
@@ -2304,9 +2401,7 @@ function writeReports(outDir, result, triageStatusMap) {
     for (const item of resultWithTriage.errors) {
       const triage = item.triage;
       lines.push(`- [${item.id}] [${item.category}] ${item.title}`);
-      lines.push(
-        `  triage: ${triage.status}${triage.decision ? ` (${triage.decision})` : ""}`,
-      );
+      lines.push(`  triage: ${formatTriageLabel(triage)}`);
       lines.push(`  side: ${item.side}`);
       if (item.referenceFile) {
         lines.push(`  reference: ${item.referenceFile}`);
@@ -2358,16 +2453,42 @@ function writeReports(outDir, result, triageStatusMap) {
 
     if (Array.isArray(diff.pages)) {
       for (const page of diff.pages) {
-        pushLink(`p${page.page}`, page.diffImage);
+        const label =
+          result.options.mode === "reftest-diff"
+            ? `${result.labels.baseline} vs ${result.labels.actual} p${page.page}`
+            : `p${page.page}`;
+        pushLink(label, page.diffImage);
       }
     }
     if (Array.isArray(diff.comparisons)) {
+      const comparisonsPerSide = new Map();
+      for (const comparison of diff.comparisons) {
+        const sideKey = comparison.side || "";
+        comparisonsPerSide.set(
+          sideKey,
+          (comparisonsPerSide.get(sideKey) || 0) + 1,
+        );
+      }
+      const seenPerSide = new Map();
       diff.comparisons.forEach((comparison, comparisonIndex) => {
+        const sideKey = comparison.side || "";
+        const sideIndex = (seenPerSide.get(sideKey) || 0) + 1;
+        seenPerSide.set(sideKey, sideIndex);
         comparison.pages.forEach((page, pageIndex) => {
-          const prefix =
-            diff.comparisons.length > 1
-              ? `r${comparisonIndex + 1}-p${pageIndex + 1}`
-              : `p${pageIndex + 1}`;
+          const pageNumber = page.actualPage || page.page || pageIndex + 1;
+          let prefix;
+          if (comparison.side) {
+            const refLabel =
+              (comparisonsPerSide.get(sideKey) || 0) > 1
+                ? `ref${sideIndex}`
+                : "ref";
+            prefix = `${comparison.side} ${refLabel} p${pageNumber}`;
+          } else {
+            prefix =
+              diff.comparisons.length > 1
+                ? `ref${comparisonIndex + 1} p${pageNumber}`
+                : `p${pageNumber}`;
+          }
           pushLink(prefix, page.diffImage);
         });
       });
@@ -2593,6 +2714,19 @@ function writeTriageTemplate(outDir, result) {
   const entries = [];
 
   for (const diff of result.differences) {
+    if (diff.triageRequired === false) {
+      continue;
+    }
+    const uniqueComparisons = Array.isArray(diff.comparisons)
+      ? diff.comparisons.filter(
+          (comparison, index, comparisons) =>
+            comparisons.findIndex(
+              (item) =>
+                item.referenceFile === comparison.referenceFile &&
+                item.relation === comparison.relation,
+            ) === index,
+        )
+      : [];
     const entry = {
       id: diff.id,
       category: diff.category,
@@ -2607,39 +2741,58 @@ function writeTriageTemplate(outDir, result) {
       baselineLabel: result.labels.baseline,
       baselineUrl: diff.baseline?.url,
     };
-    if (Array.isArray(diff.comparisons) && diff.comparisons.length > 0) {
-      if (diff.comparisons.length === 1) {
-        entry.referenceFile = diff.comparisons[0].referenceFile;
-        entry.relation = diff.comparisons[0].relation;
+    if (uniqueComparisons.length > 0) {
+      if (uniqueComparisons.length === 1) {
+        entry.referenceFile = uniqueComparisons[0].referenceFile;
+        entry.relation = uniqueComparisons[0].relation;
       } else {
-        entry.referenceFiles = diff.comparisons.map(
+        entry.referenceFiles = uniqueComparisons.map(
           (item) => item.referenceFile,
         );
-        entry.relations = diff.comparisons.map((item) => item.relation);
+        entry.relations = uniqueComparisons.map((item) => item.relation);
       }
-      const unexpectedMatches = diff.comparisons
-        .filter((item) => item.unexpectedEquality)
-        .map((item) => item.referenceFile);
+      const unexpectedMatches = [
+        ...new Set(
+          diff.comparisons
+            .filter((item) => item.unexpectedEquality)
+            .map((item) => item.referenceFile),
+        ),
+      ];
       if (unexpectedMatches.length > 0) {
         entry.unexpectedMatches = unexpectedMatches;
       }
-      const diffPages = diff.comparisons.flatMap((item) =>
-        item.pages.map((page) =>
-          page.actualPage === page.baselinePage
-            ? `${item.referenceFile}#${page.actualPage}`
-            : `${item.referenceFile}#${page.actualPage}:${page.baselinePage}`,
+      const diffPages = [
+        ...new Set(
+          diff.comparisons.flatMap((item) =>
+            item.pages.map((page) =>
+              page.actualPage === page.baselinePage
+                ? `${item.referenceFile}#${page.actualPage}`
+                : `${item.referenceFile}#${page.actualPage}:${page.baselinePage}`,
+            ),
+          ),
         ),
-      );
+      ];
       if (diffPages.length > 0) {
         entry.diffPages = diffPages;
       }
-      const pageSelections = diff.comparisons
-        .filter((item) => item.pageCountMismatch)
-        .map((item) => ({
-          referenceFile: item.referenceFile,
-          actualPages: item.actualPageNumbers,
-          baselinePages: item.baselinePageNumbers,
-        }));
+      const pageSelections = [
+        ...new Map(
+          diff.comparisons
+            .filter((item) => item.pageCountMismatch)
+            .map((item) => [
+              JSON.stringify([
+                item.referenceFile,
+                item.actualPageNumbers,
+                item.baselinePageNumbers,
+              ]),
+              {
+                referenceFile: item.referenceFile,
+                actualPages: item.actualPageNumbers,
+                baselinePages: item.baselinePageNumbers,
+              },
+            ]),
+        ).values(),
+      ];
       if (pageSelections.length > 0) {
         entry.pageSelections = pageSelections;
       }
@@ -3269,18 +3422,22 @@ async function main() {
         : viewerChanged;
 
       if (shouldRecordDifference) {
-        const triage = getTriageStatus(
-          triageStatusMap,
-          target.category,
-          target.title,
-          "difference",
-        );
+        const triageRequired = combinedChangeType !== "improvement";
+        const triage = triageRequired
+          ? getTriageStatus(
+              triageStatusMap,
+              target.category,
+              target.title,
+              "difference",
+            )
+          : { status: "not-needed", decision: "" };
         differences.push({
           id,
           category: target.category,
           title: target.title,
           file: toArray(target.file),
           classification: combinedChangeType,
+          triageRequired,
           actualStatus,
           baselineStatus,
           pageCountMismatch: viewerDiff.pageCountMismatch,
@@ -3735,7 +3892,10 @@ async function main() {
     errors.filter((e) => e.triage?.status === "pending").length;
   console.log(`${pendingTriage} entry/entries need triage (decision is empty)`);
 
-  if (differences.length > 0 || errors.length > 0) {
+  const actionableDifferences = differences.filter(
+    (difference) => difference.triageRequired !== false,
+  ).length;
+  if (actionableDifferences > 0 || errors.length > 0) {
     process.exitCode = 2;
   }
 }
