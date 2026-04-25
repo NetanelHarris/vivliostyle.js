@@ -764,7 +764,6 @@ export const OP_MEDIA_NOT: number = TokenType.LAST + 3;
   actionsErrorDecl[TokenType.C_PAR] = Action.ERROR_POP;
   actionsErrorDecl[TokenType.SEMICOL] = Action.ERROR_SEMICOL;
   actionsErrorSelector[TokenType.EOF] = Action.DONE;
-  actionsErrorSelector[TokenType.COMMA] = Action.ERROR_SEMICOL;
   actionsErrorSelector[TokenType.O_BRC] = Action.ERROR_PUSH;
   actionsErrorSelector[TokenType.C_BRC] = Action.ERROR_POP;
   actionsErrorSelector[TokenType.O_BRK] = Action.ERROR_PUSH;

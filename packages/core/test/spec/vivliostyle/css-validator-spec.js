@@ -38,7 +38,7 @@ describe("css-validator", function () {
         .parseStylesheetFromText(cssText, handler, null, null, null)
         .then(function (result) {
           expect(result).toBe(true);
-          callback(handler.finish());
+          callback(handler.finish(), handler);
           done();
         });
       return adapt_task.newResult(true);
@@ -67,6 +67,58 @@ describe("css-validator", function () {
         function (cascade) {
           expect(cascade.tags.ul).toBeDefined();
           expect(cascade.tags.ul.style["background-color"]).toBeDefined();
+        },
+      );
+    });
+  });
+
+  describe("invalid selector list recovery", function () {
+    it("drops an invalid selector list instead of salvaging later selectors", function (done) {
+      parseCascade(
+        "p { background: lime; } foo % address, p { background: red; }",
+        done,
+        function (cascade) {
+          expect(cascade.tags.p).toBeDefined();
+          expect(cascade.tags.p.style["background-color"]).toBeDefined();
+          expect(
+            cascade.tags.p.style["background-color"].value.toString(),
+          ).toBe("lime");
+        },
+      );
+    });
+
+    it("drops an invalid selector list even when it uses !important", function (done) {
+      parseCascade(
+        "foo % address, p { background: red ! important; } p { background: lime; }",
+        done,
+        function (cascade) {
+          expect(cascade.tags.p).toBeDefined();
+          expect(cascade.tags.p.style["background-color"]).toBeDefined();
+          expect(
+            cascade.tags.p.style["background-color"].value.toString(),
+          ).toBe("lime");
+        },
+      );
+    });
+  });
+
+  describe("contextually invalid selectors", function () {
+    it("invalidates selectors continued after pseudo-elements inside :is()", function (done) {
+      parseCascade(
+        ":is(*, ::before) * { color: purple; }",
+        done,
+        function (_cascade, handler) {
+          expect(handler.invalid).toBe(true);
+        },
+      );
+    });
+
+    it("invalidates pseudo-elements continued after pseudo-elements inside :is()", function (done) {
+      parseCascade(
+        ":is(*, ::before)::after { color: purple; }",
+        done,
+        function (_cascade, handler) {
+          expect(handler.invalid).toBe(true);
         },
       );
     });
