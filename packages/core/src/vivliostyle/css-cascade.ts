@@ -4466,6 +4466,7 @@ export class CascadeParserHandler
   elementStyle: ElementStyle = null;
   conditionCount: number = 0;
   pseudoelement: string | null = null;
+  selectorFunctionContainsPseudoelement: boolean = false;
   footnoteContent: boolean = false;
   cascade: Cascade;
   state: ParseState;
@@ -4506,6 +4507,22 @@ export class CascadeParserHandler
     this.insertNonPrimary(chained);
   }
 
+  private invalidContinuationAfterPseudoelement(continuation: string): boolean {
+    if (this.pseudoelement) {
+      this.invalidSelector(
+        `::${this.pseudoelement} followed by ${continuation}`,
+      );
+      return true;
+    }
+    if (this.selectorFunctionContainsPseudoelement) {
+      this.invalidSelector(
+        `Selector containing pseudo-element followed by ${continuation}`,
+      );
+      return true;
+    }
+    return false;
+  }
+
   isInsideSelectorRule(mnemonics: string): boolean {
     if (this.state != ParseState.TOP) {
       this.reportAndSkip(mnemonics);
@@ -4516,6 +4533,9 @@ export class CascadeParserHandler
 
   override tagSelector(ns: string | null, name: string | null): void {
     if (!name && !ns) {
+      return;
+    }
+    if (this.invalidContinuationAfterPseudoelement(name ? name : "*")) {
       return;
     }
     if (name) {
@@ -4548,8 +4568,7 @@ export class CascadeParserHandler
   }
 
   override classSelector(name: string): void {
-    if (this.pseudoelement) {
-      this.invalidSelector(`::${this.pseudoelement} followed by .${name}`);
+    if (this.invalidContinuationAfterPseudoelement(`.${name}`)) {
       return;
     }
     this.specificity += 256;
@@ -4560,8 +4579,7 @@ export class CascadeParserHandler
     name: string,
     params: (number | string)[],
   ): void {
-    if (this.pseudoelement) {
-      this.invalidSelector(`::${this.pseudoelement} followed by :${name}`);
+    if (this.invalidContinuationAfterPseudoelement(`:${name}`)) {
       return;
     }
     switch (name.toLowerCase()) {
@@ -4677,6 +4695,9 @@ export class CascadeParserHandler
     name: string,
     params: (number | string)[],
   ): void {
+    if (this.invalidContinuationAfterPseudoelement(`::${name}`)) {
+      return;
+    }
     switch (name) {
       case "before":
       case "after":
@@ -4728,6 +4749,9 @@ export class CascadeParserHandler
   }
 
   override idSelector(id: string): void {
+    if (this.invalidContinuationAfterPseudoelement(`#${id}`)) {
+      return;
+    }
     this.specificity += 65536;
     this.chain.push(new CheckIdAction(id));
   }
@@ -4738,6 +4762,9 @@ export class CascadeParserHandler
     op: TokenType,
     value: string | null,
   ): void {
+    if (this.invalidContinuationAfterPseudoelement(`[${name}]`)) {
+      return;
+    }
     this.specificity += 256;
     name = name.toLowerCase();
     value = value || "";
@@ -4816,6 +4843,9 @@ export class CascadeParserHandler
   }
 
   override descendantSelector(): void {
+    if (this.invalidContinuationAfterPseudoelement("descendant selector")) {
+      return;
+    }
     const condition = `d${conditionCount++}`;
     this.processChain(
       new ConditionItemAction(
@@ -4827,6 +4857,9 @@ export class CascadeParserHandler
   }
 
   override childSelector(): void {
+    if (this.invalidContinuationAfterPseudoelement("child selector")) {
+      return;
+    }
     const condition = `c${conditionCount++}`;
     this.processChain(
       new ConditionItemAction(
@@ -4838,6 +4871,11 @@ export class CascadeParserHandler
   }
 
   override adjacentSiblingSelector(): void {
+    if (
+      this.invalidContinuationAfterPseudoelement("adjacent sibling selector")
+    ) {
+      return;
+    }
     const condition = `a${conditionCount++}`;
     this.processChain(
       new ConditionItemAction(
@@ -4849,6 +4887,11 @@ export class CascadeParserHandler
   }
 
   override followingSiblingSelector(): void {
+    if (
+      this.invalidContinuationAfterPseudoelement("following sibling selector")
+    ) {
+      return;
+    }
     const condition = `f${conditionCount++}`;
     this.processChain(
       new ConditionItemAction(
@@ -4866,6 +4909,7 @@ export class CascadeParserHandler
   override nextSelector(): void {
     this.finishChain();
     this.pseudoelement = null;
+    this.selectorFunctionContainsPseudoelement = false;
     this.footnoteContent = false;
     this.specificity = 0;
     this.chain = [];
@@ -4878,6 +4922,7 @@ export class CascadeParserHandler
     this.state = ParseState.SELECTOR;
     this.elementStyle = {} as ElementStyle;
     this.pseudoelement = null;
+    this.selectorFunctionContainsPseudoelement = false;
     this.specificity = 0;
     this.footnoteContent = false;
     this.chain = [];
@@ -4915,6 +4960,7 @@ export class CascadeParserHandler
       this.processChain(this.makeApplyRuleAction(this.specificity));
       this.chain = null;
       this.pseudoelement = null;
+      this.selectorFunctionContainsPseudoelement = false;
       this.viewConditionId = null;
       this.footnoteContent = false;
       this.specificity = 0;
@@ -5067,6 +5113,7 @@ export class MatchesParameterParserHandler extends CascadeParserHandler {
   chains: ChainedAction[][] = [];
   maxSpecificity: number = 0;
   selectorTexts: string[] = [];
+  containsPseudoelementSelector: boolean = false;
 
   constructor(public readonly parent: CascadeParserHandler) {
     super(
@@ -5082,6 +5129,7 @@ export class MatchesParameterParserHandler extends CascadeParserHandler {
   }
 
   override nextSelector(): void {
+    this.containsPseudoelementSelector ||= !!this.pseudoelement;
     if (this.chain) {
       this.chains.push(this.chain);
     }
@@ -5094,6 +5142,7 @@ export class MatchesParameterParserHandler extends CascadeParserHandler {
   }
 
   override endFuncWithSelector(): void {
+    this.containsPseudoelementSelector ||= !!this.pseudoelement;
     if (this.chain) {
       this.chains.push(this.chain);
     }
@@ -5109,6 +5158,8 @@ export class MatchesParameterParserHandler extends CascadeParserHandler {
       if (this.increasingSpecificity()) {
         this.parent.specificity += this.maxSpecificity;
       }
+      this.parent.selectorFunctionContainsPseudoelement ||=
+        this.containsPseudoelementSelector;
     } else {
       // func argument is empty or all invalid
       this.parentChain.push(new CheckConditionAction("")); // always fails
