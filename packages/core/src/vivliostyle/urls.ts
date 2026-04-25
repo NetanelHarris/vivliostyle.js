@@ -24,6 +24,11 @@
  * @returns transformed attributeValue
  */
 
+const escapeURLForCSS = (url) =>
+  String(url).replace(/[\u0000-\u001F\u007F"'()\\\s]/g, (m) =>
+    `%${m.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`,
+  );
+
 export const transformURIs = (
   attributeValue,
   baseUrl,
@@ -33,14 +38,15 @@ export const transformURIs = (
     .replace(
       /[uU][rR][lL]\(\s*"((\\([^0-9a-fA-F]+|[0-9a-fA-F]+\s*)|[^"\r\n])+)"/gm,
       (match, m1) =>
-        `url("${documentURLTransformer.transformURL(m1, baseUrl)}"`,
+        `url("${escapeURLForCSS(documentURLTransformer.transformURL(m1, baseUrl))}"`,
     )
     .replace(
       /[uU][rR][lL]\(\s*'((\\([^0-9a-fA-F]+|[0-9a-fA-F]+\s*)|[^'\r\n])+)'/gm,
       (match, m1) =>
-        `url('${documentURLTransformer.transformURL(m1, baseUrl)}'`,
+        `url('${escapeURLForCSS(documentURLTransformer.transformURL(m1, baseUrl))}'`,
     )
     .replace(
       /[uU][rR][lL]\(\s*((\\([^0-9a-fA-F]+|[0-9a-fA-F]+\s*)|[^"'\r\n\)\s])+)/gm,
-      (match, m1) => `url(${documentURLTransformer.transformURL(m1, baseUrl)}`,
+      (match, m1) =>
+        `url(${escapeURLForCSS(documentURLTransformer.transformURL(m1, baseUrl))}`,
     );
