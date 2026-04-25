@@ -3,6 +3,27 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.42.0](https://github.com/vivliostyle/vivliostyle.js/compare/v2.41.0...v2.42.0) (2026-04-25)
+
+### Features
+
+- add WPT reftest support to layout regression tooling ([74ac0d0](https://github.com/vivliostyle/vivliostyle.js/commit/74ac0d09fd2a9d0de758c7726374f676d46c80e9))
+- Add CSS Nesting support ([5c11c33](https://github.com/vivliostyle/vivliostyle.js/commit/5c11c330c0ae74e935bbcfe5c2b83590a4d1357b)), closes [#1032](https://github.com/vivliostyle/vivliostyle.js/issues/1032)
+- support CSS footnote properties and pseudos for semantic footnotes ([1045058](https://github.com/vivliostyle/vivliostyle.js/commit/1045058eed23addd3b7cd535809d7dac474e9608)), closes [#1884](https://github.com/vivliostyle/vivliostyle.js/issues/1884)
+
+### Bug Fixes
+
+- fix invalid selector recovery for css nesting ([e5d8bc1](https://github.com/vivliostyle/vivliostyle.js/commit/e5d8bc160371c5a7d65d46803a4c11dd7f5739b1))
+- Improve error messages for load failures and enable CORS on dev server ([58aefeb](https://github.com/vivliostyle/vivliostyle.js/commit/58aefeba711d8314488dcfdf4366ae6aa4cf9085))
+- fix footnote fragmentation after moving multicol call ([eda737a](https://github.com/vivliostyle/vivliostyle.js/commit/eda737a06eb2be493651701c5c4b5900e9944719)), closes [#1891](https://github.com/vivliostyle/vivliostyle.js/issues/1891)
+- preserve wrap opportunities between compact inline footnotes ([00b07e2](https://github.com/vivliostyle/vivliostyle.js/commit/00b07e24d19f2f11bbb4487a2e7c43532e89d5a3))
+- Prevent float from protruding outside containing block after page break ([ef132e8](https://github.com/vivliostyle/vivliostyle.js/commit/ef132e88c352f818527228bdb720a23c04eaba48)), closes [#1885](https://github.com/vivliostyle/vivliostyle.js/issues/1885)
+- Fix deferred footnotes skipped on blank spread-break pages ([b4bc5de](https://github.com/vivliostyle/vivliostyle.js/commit/b4bc5de3198edad18963bb8107e4c1eae73dbf00)), closes [#1880](https://github.com/vivliostyle/vivliostyle.js/issues/1880)
+- fix footnote area max-height/max-block-size and box-sizing support ([769cf77](https://github.com/vivliostyle/vivliostyle.js/commit/769cf77bdde4f7512da7ffd99572f874062884b0)), closes [#1878](https://github.com/vivliostyle/vivliostyle.js/issues/1878)
+- Fix footnote fragmentation in multi-column layout ([a4fa3be](https://github.com/vivliostyle/vivliostyle.js/commit/a4fa3bead52073f933458aa2dfdd5e4736f6ec5b)), closes [#1879](https://github.com/vivliostyle/vivliostyle.js/issues/1879)
+- Enable footnote fragmentation across pages ([6339c77](https://github.com/vivliostyle/vivliostyle.js/commit/6339c77abec7ac64fc47be0e7c6ba0a47bd772d7)), closes [#1875](https://github.com/vivliostyle/vivliostyle.js/issues/1875)
+- Fix table headers not repeated on continuation pages ([b77c4ee](https://github.com/vivliostyle/vivliostyle.js/commit/b77c4ee04ffeb22e8bd73e11adf4431389f4c2c9)), closes [#1873](https://github.com/vivliostyle/vivliostyle.js/issues/1873)
+
 # [2.41.0](https://github.com/vivliostyle/vivliostyle.js/compare/v2.40.0...v2.41.0) (2026-04-11)
 
 ### Features
