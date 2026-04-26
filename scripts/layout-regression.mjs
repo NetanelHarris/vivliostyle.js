@@ -1485,6 +1485,57 @@ async function getTotalPages(page) {
   });
 }
 
+function createWallClockTimeoutError(timeoutMs, action) {
+  const error = new Error(
+    `Wall-clock timeout after ${timeoutMs}ms while ${action}`,
+  );
+  error.name = "TimeoutError";
+  return error;
+}
+
+async function withWallClockTimeout(task, timeoutMs, action) {
+  let timer;
+
+  try {
+    return await new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (callback) => (value) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        callback(value);
+      };
+
+      timer = setTimeout(
+        finish(() => reject(createWallClockTimeoutError(timeoutMs, action))),
+        timeoutMs,
+      );
+
+      Promise.resolve().then(task).then(finish(resolve), finish(reject));
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function closeContextSafely(context, timeoutMs) {
+  if (!context) {
+    return;
+  }
+
+  try {
+    await withWallClockTimeout(
+      () => context.close(),
+      Math.max(1000, Math.min(timeoutMs, 5000)),
+      "closing browser context",
+    );
+  } catch (closeErr) {
+    console.warn("Failed to close browser context:", closeErr);
+  }
+}
+
 async function navigateToPageByInput(page, pageNumber, timeoutMs) {
   const input = page.locator("#vivliostyle-page-number");
   await input.fill(String(pageNumber), { timeout: timeoutMs });
@@ -1524,24 +1575,49 @@ async function capturePages({
   skipScreenshots,
   exportHtml,
 }) {
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
-  await waitForViewerReady(page, timeoutMs);
+  await withWallClockTimeout(
+    () => page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs }),
+    timeoutMs,
+    `loading ${url}`,
+  );
+  await withWallClockTimeout(
+    () => waitForViewerReady(page, timeoutMs),
+    timeoutMs,
+    `waiting for viewer ready for ${url}`,
+  );
 
   // Hide Vercel's live-feedback widget that gets injected into Vercel preview
   // deployments — it would appear in screenshots and cause spurious diffs.
-  await page.addStyleTag({
-    content: "vercel-live-feedback { display: none !important; }",
-  });
+  await withWallClockTimeout(
+    () =>
+      page.addStyleTag({
+        content: "vercel-live-feedback { display: none !important; }",
+      }),
+    timeoutMs,
+    `injecting viewer styles for ${url}`,
+  );
 
-  const errorMsg = await checkViewerError(page);
+  const errorMsg = await withWallClockTimeout(
+    () => checkViewerError(page),
+    timeoutMs,
+    `checking viewer errors for ${url}`,
+  );
   if (errorMsg) {
     throw new Error(`Viewer error: ${errorMsg}`);
   }
 
-  const totalPages = await getTotalPages(page);
+  const totalPages = await withWallClockTimeout(
+    () => getTotalPages(page),
+    timeoutMs,
+    `reading total pages for ${url}`,
+  );
 
   if (exportHtml) {
-    const html = await page.content();
+    const html = await withWallClockTimeout(
+      () => page.content(),
+      timeoutMs,
+      `reading rendered HTML for ${url}`,
+    );
     const snapshotPath = path.join(dir, `${key}.html`);
     fs.writeFileSync(snapshotPath, html, "utf8");
   }
@@ -1553,20 +1629,36 @@ async function capturePages({
     // Detect navigation capability once: prefer input-based jump, fall back to
     // sequential Move-Next clicks for old viewers without the page-number field.
     const useInputNav =
-      (await page.locator("#vivliostyle-page-number").count()) > 0;
+      (await withWallClockTimeout(
+        () => page.locator("#vivliostyle-page-number").count(),
+        timeoutMs,
+        `checking page navigation input for ${url}`,
+      )) > 0;
 
     for (let p = 1; p <= totalPages; p++) {
       if (useInputNav) {
-        await navigateToPageByInput(page, p, timeoutMs);
+        await withWallClockTimeout(
+          () => navigateToPageByInput(page, p, timeoutMs),
+          timeoutMs,
+          `navigating to page ${p} for ${url}`,
+        );
       } else if (p > 1) {
         // Already on page 1 after initial load; only click for subsequent pages.
-        await navigateToNextPage(page, timeoutMs);
+        await withWallClockTimeout(
+          () => navigateToNextPage(page, timeoutMs),
+          timeoutMs,
+          `navigating to next page ${p} for ${url}`,
+        );
       }
       const imagePath = path.join(
         dir,
         `${key}-p${String(p).padStart(4, "0")}.png`,
       );
-      await spreadContainer.screenshot({ path: imagePath, scale: "css" });
+      await withWallClockTimeout(
+        () => spreadContainer.screenshot({ path: imagePath, scale: "css" }),
+        timeoutMs,
+        `capturing page ${p} for ${url}`,
+      );
     }
   }
 
@@ -1618,13 +1710,7 @@ async function captureOneSide({
   } catch (err) {
     return { ok: false, error: toComparableError(err) };
   } finally {
-    if (context) {
-      try {
-        await context.close();
-      } catch (closeErr) {
-        console.warn("Failed to close browser context:", closeErr);
-      }
-    }
+    await closeContextSafely(context, timeoutMs);
   }
 }
 
