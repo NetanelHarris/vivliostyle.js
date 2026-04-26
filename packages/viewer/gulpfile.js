@@ -341,6 +341,7 @@ function serve(isDevelopment) {
       ghostMode: false, // do not mirror clicks, scrolls etc. between multiple browsers
       notify: false, // do not show any notifications in the browser
       port: 3000,
+      cors: true, // allow cross-origin requests so online viewers can load local test files
     },
     (_, bs) => {
       const localOrigin = getLocalServerOrigin(bs);

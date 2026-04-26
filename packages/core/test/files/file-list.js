@@ -71,6 +71,14 @@ module.exports = [
       },
       { file: "nth_selectors.html", title: "nth selectors" },
       { file: "empty_selector.html", title: "empty selector" },
+      {
+        file: "css-nesting-basic.html",
+        title: "CSS Nesting basic (Issue #1032)",
+      },
+      {
+        file: "css-nesting-conditionals.html",
+        title: "CSS Nesting conditionals (Issue #1032)",
+      },
       { file: "ui_state_selectors.html", title: "UI state selectors" },
       { file: "not-pseudo-selector.html", title: ":not pseudo selector" },
       { file: "math-sample.html", title: "MathJax" },
@@ -96,6 +104,15 @@ module.exports = [
       {
         file: "float-lh-rlh.html",
         title: "Float with lh/rlh height (Issue #1494, #1738)",
+      },
+      {
+        file: "float-in-position-relative.html",
+        title: "Float in position:relative across page break (Issue #1885)",
+      },
+      {
+        file: "float-in-position-relative-vertical.html",
+        title:
+          "Float in position:relative across page break, vertical writing mode (Issue #1885)",
       },
       { file: "content-attr.html", title: "Content attr()" },
       { file: "relative_floats.html", title: "Floats with position: relative" },
@@ -902,9 +919,39 @@ module.exports = [
           "DPUB noteref duplicate reference should not duplicate footnote body (Issue #1767)",
       },
       {
+        file: "footnotes/dpub-footnote-duplicate-reference-call-marker.html",
+        title:
+          "DPUB duplicate reference with ::footnote-call/::footnote-marker",
+      },
+      {
         file: "footnotes/dpub-footnote-inherit.html",
         title:
           "DPUB footnote should inherit from source parent, not noteref (Issue #1770)",
+      },
+      {
+        file: "footnotes/dpub-footnote-display.html",
+        title: "DPUB footnote-display (Issue #1884)",
+      },
+      {
+        file: "footnotes/dpub-footnote-policy.html",
+        title: "DPUB footnote-policy comparison (Issue #1884)",
+      },
+      {
+        file: "footnotes/dpub-footnote-call-marker.html",
+        title: "DPUB ::footnote-call/::footnote-marker (Issue #1884)",
+      },
+      {
+        file: "footnotes/dpub-footnote-call-replaces-content.html",
+        title: "DPUB ::footnote-call replaces noteref content",
+      },
+      {
+        file: "footnotes/dpub-footnote-area-before-inherits-font-size.html",
+        title: "DPUB @footnote ::before inherits @footnote font-size",
+      },
+      {
+        file: "footnotes/dpub-footnote-call-marker-outside.html",
+        title:
+          "DPUB ::footnote-marker outside list-style-position (Issue #1884)",
       },
       {
         file: "footnotes/epub-footnotes-static-number.html",
@@ -937,6 +984,27 @@ module.exports = [
       {
         file: "footnotes/footnote-fragmentation.html",
         title: "Footnote fragmentation across pages (Issue #1875)",
+      },
+      {
+        file: "footnotes/footnote-fragmentation-multicol.html",
+        title: "Footnote fragmentation in multi-column (Issue #1879)",
+      },
+      {
+        file: "footnotes/footnote-fragmentation-multicol-moved-call.html",
+        title:
+          "Footnote fragmentation in multi-column after moving call (Issue #1891)",
+      },
+      {
+        file: "footnotes/footnote-area-max-height.html",
+        title: "Footnote area max-height (Issue #1878)",
+      },
+      {
+        file: "footnotes/footnote-area-max-height-box-sizing.html",
+        title: "Footnote area max-height with box-sizing (Issue #1878)",
+      },
+      {
+        file: "footnotes/footnote-area-max-height-vertical.html",
+        title: "Footnote area max-block-size vertical (Issue #1878)",
       },
     ],
   },

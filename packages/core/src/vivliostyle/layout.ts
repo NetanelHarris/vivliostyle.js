@@ -39,6 +39,7 @@ import * as PageFloats from "./page-floats";
 import * as Plugin from "./plugin";
 import * as Matchers from "./matchers";
 import * as PseudoElement from "./pseudo-element";
+import * as SemanticFootnote from "./semantic-footnote";
 import * as Task from "./task";
 import * as Vgen from "./vgen";
 import * as VtreeImpl from "./vtree";
@@ -1494,20 +1495,25 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
           top: this.getTopEdge() - this.paddingTop,
         };
       }
+      // The computed float offset from the block-start edge of its
+      // containing block may be negative when the containing block has
+      // `position: relative` and has been pushed along the block-progression
+      // direction by a margin carried over from a preceding sibling across
+      // a column/page break. Clamp the offset to be non-negative so that
+      // the float stays inside the containing block. (Issue #1885)
       if (
         containingBlockForAbsolute
           ? containingBlockForAbsolute.vertical
           : this.vertical
       ) {
-        Base.setCSSProperty(
-          element,
-          "right",
-          `${offsets.right - floatBox.x2}px`,
-        );
+        const rightValue = Math.max(0, offsets.right - floatBox.x2);
+        Base.setCSSProperty(element, "right", `${rightValue}px`);
       } else {
-        Base.setCSSProperty(element, "left", `${floatBox.x1 - offsets.left}px`);
+        const leftValue = Math.max(0, floatBox.x1 - offsets.left);
+        Base.setCSSProperty(element, "left", `${leftValue}px`);
       }
-      Base.setCSSProperty(element, "top", `${floatBox.y1 - offsets.top}px`);
+      const topValue = Math.max(0, floatBox.y1 - offsets.top);
+      Base.setCSSProperty(element, "top", `${topValue}px`);
       if (nodeContext.clearSpacer) {
         nodeContext.clearSpacer.parentNode.removeChild(nodeContext.clearSpacer);
         nodeContext.clearSpacer = null;
@@ -1604,6 +1610,28 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
           condition,
         );
         if (fitWithinContainer) {
+          // For footnotes with max-block-size, setFloatAreaDimensions may
+          // have set the block dimension larger than the CSS max-block-size
+          // (because positioning uses page-level limits, not area bounds).
+          // Clamp to max-block-size so the JS dimension matches the browser-
+          // rendered dimension, preventing coordinate mismatches in
+          // initGeom()/computedBlockSize calculations. (Issue #1878)
+          if (area.isFootnote) {
+            const cs = getComputedStyle(area.element);
+            if (area.vertical) {
+              const maxW = parseFloat(cs.maxWidth);
+              if (!isNaN(maxW) && area.width > maxW) {
+                area.width = maxW;
+                Base.setCSSProperty(area.element, "width", `${maxW}px`);
+              }
+            } else {
+              const maxH = parseFloat(cs.maxHeight);
+              if (!isNaN(maxH) && area.height > maxH) {
+                area.height = maxH;
+                Base.setCSSProperty(area.element, "height", `${maxH}px`);
+              }
+            }
+          }
           // New dimensions have been set, remove exclusion floats and re-init
           area.killFloats();
           area.init();
@@ -1743,7 +1771,38 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
             // Footnote content could not be placed (e.g., widows/orphans
             // constraints prevented fragmentation). Fail the layout so
             // the footnote is deferred to the next page.
-            failed = true;
+            // Exception: during iterative footnote sizing, an empty first
+            // fragment can mean we need to start or continue the retry cycle
+            // instead of deferring the whole footnote. This is what lets the
+            // moved-call multicol case retry on the current page (#1891).
+            const floatContext = context.getPageFloatLayoutContext(
+              firstFloat.floatReference,
+            );
+            if (floatContext.footnoteMaxBlockSize == null) {
+              if (
+                floatContext.initFootnoteRetryFromEmptyFragment(
+                  firstFloat,
+                  floatArea,
+                )
+              ) {
+                if (floatArea.element.parentNode) {
+                  floatArea.element.parentNode.removeChild(floatArea.element);
+                }
+                this.layoutSinglePageFloatFragment(
+                  continuations,
+                  floatSide,
+                  clearSide,
+                  allowFragmented,
+                  strategy,
+                  anchorEdge,
+                  pageFloatFragment,
+                ).then((retryResult) => {
+                  frame.finish(retryResult);
+                });
+                return;
+              }
+              failed = true;
+            }
           }
           if (!failed) {
             Asserts.assert(floatArea);
@@ -2082,6 +2141,10 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
         0,
       );
       const nodeContextAfter = this.setFloatAnchorViewNode(nodeContext);
+      // Record the anchor before fragment lookup so empty-fragment retries can
+      // still tell that this footnote call has already been encountered on the
+      // current page (Issue #1891).
+      context.markPageFloatAnchorSeen(float);
       const pageFloatFragment = strategy.findPageFloatFragment(float, context);
       const continuation = new PageFloats.PageFloatContinuation(
         float,
@@ -5169,6 +5232,17 @@ export class PageFloatArea extends Column implements Layout.PageFloatArea {
     const styler = viewFactory?.styler;
     const xmldoc = viewFactory?.xmldoc;
     const compactFootnotes = this.rootViewNodes.filter((node) => {
+      const computedStyle =
+        node.ownerDocument.defaultView?.getComputedStyle(node);
+      const renderedFootnoteDisplay =
+        computedStyle?.getPropertyValue("--viv-footnote-display").trim() || "";
+      if (renderedFootnoteDisplay === "compact") {
+        return !(
+          computedStyle?.display === "list-item" &&
+          computedStyle.getPropertyValue("list-style-position").trim() ===
+            "outside"
+        );
+      }
       const offset = node.getAttribute(Base.ELEMENT_OFFSET_ATTR);
       if (!offset || !styler || !xmldoc) {
         return false;
@@ -5204,7 +5278,6 @@ export class PageFloatArea extends Column implements Layout.PageFloatArea {
     const tolerance = 1.5 / (this.clientLayout.pixelRatio || 1);
     const measureCompactInlineSize = (element: HTMLElement): number => {
       const clone = element.cloneNode(true) as HTMLElement;
-      clone.style.removeProperty("--viv-footnote-inline-separator");
       Base.setCSSProperty(clone, "display", "inline-block");
       Base.setCSSProperty(clone, "position", "absolute");
       Base.setCSSProperty(clone, "visibility", "hidden");
@@ -5254,6 +5327,58 @@ export class PageFloatArea extends Column implements Layout.PageFloatArea {
     );
   }
 
+  private getFootnoteAfterPseudo(element: Element): HTMLElement | null {
+    return Array.from(element.children).find(
+      (child) => PseudoElement.getPseudoName(child) === "after",
+    ) as HTMLElement | null;
+  }
+
+  private hasAuthorFootnoteAfterPseudo(element: Element): boolean {
+    const afterPseudo = this.getFootnoteAfterPseudo(element);
+    if (
+      !!afterPseudo &&
+      !afterPseudo.hasAttribute("data-vivliostyle-default-footnote-separator")
+    ) {
+      return true;
+    }
+    const semanticFootnoteChild = Array.from(element.children).find(
+      (child) =>
+        child instanceof Element &&
+        SemanticFootnote.isSemanticFootnoteElement(child),
+    ) as Element | undefined;
+    const semanticAfterPseudo = semanticFootnoteChild
+      ? this.getFootnoteAfterPseudo(semanticFootnoteChild)
+      : null;
+    return (
+      !!semanticAfterPseudo &&
+      !semanticAfterPseudo.hasAttribute(
+        "data-vivliostyle-default-footnote-separator",
+      )
+    );
+  }
+
+  private createDefaultFootnoteAfterPseudo(element: HTMLElement): void {
+    const after = element.ownerDocument.createElement("span");
+    PseudoElement.setPseudoName(after, "after");
+    after.setAttribute("data-vivliostyle-default-footnote-separator", "1");
+    after.style.whiteSpace = "normal";
+    after.textContent = " ";
+    element.appendChild(after);
+  }
+
+  private getFootnoteBreakOpportunity(element: Element): HTMLElement | null {
+    const nextSibling = element.nextElementSibling;
+    return nextSibling?.hasAttribute("data-vivliostyle-footnote-break")
+      ? (nextSibling as HTMLElement)
+      : null;
+  }
+
+  private createFootnoteBreakOpportunity(element: HTMLElement): void {
+    const breakOpportunity = element.ownerDocument.createElement("wbr");
+    breakOpportunity.setAttribute("data-vivliostyle-footnote-break", "1");
+    element.insertAdjacentElement("afterend", breakOpportunity);
+  }
+
   private updateInlineFootnoteSeparators(): void {
     this.rootViewNodes.forEach((node, index) => {
       const element = node as HTMLElement;
@@ -5266,10 +5391,34 @@ export class PageFloatArea extends Column implements Layout.PageFloatArea {
         nextElement?.ownerDocument.defaultView?.getComputedStyle(
           nextElement,
         ).display;
+      const afterPseudo = this.getFootnoteAfterPseudo(element);
+      const authorAfterPseudoExists =
+        this.hasAuthorFootnoteAfterPseudo(element);
+      const isDefaultAfterPseudo = !!afterPseudo?.hasAttribute(
+        "data-vivliostyle-default-footnote-separator",
+      );
+      const breakOpportunity = this.getFootnoteBreakOpportunity(element);
       if (display === "inline" && nextDisplay === "inline") {
-        element.style.setProperty("--viv-footnote-inline-separator", '" "');
+        const needsDefaultSeparator = !afterPseudo && !authorAfterPseudoExists;
+        // Insert the UA default only when the rendered footnote element
+        // or its direct semantic footnote child does not already carry an
+        // author-defined ::after pseudo.
+        if (needsDefaultSeparator) {
+          this.createDefaultFootnoteAfterPseudo(element);
+        }
+        // Author overrides can remove or replace the default separating space,
+        // which would otherwise remove the wrap opportunity between compact
+        // inline footnotes. Add an invisible break opportunity in that case.
+        if (!needsDefaultSeparator && !breakOpportunity) {
+          this.createFootnoteBreakOpportunity(element);
+        } else if (needsDefaultSeparator) {
+          breakOpportunity?.remove();
+        }
       } else {
-        element.style.removeProperty("--viv-footnote-inline-separator");
+        if (isDefaultAfterPseudo) {
+          afterPseudo.remove();
+        }
+        breakOpportunity?.remove();
       }
     });
   }

@@ -31,6 +31,7 @@ import * as Counters from "./counters";
 import * as CounterStyle from "./counter-style";
 import * as Css from "./css";
 import * as CssCascade from "./css-cascade";
+import { replaceScopeAmpersands } from "./css-nesting";
 import * as CssParser from "./css-parser";
 import * as CssProp from "./css-prop";
 import * as CssStyler from "./css-styler";
@@ -625,8 +626,18 @@ export class StyleInstance
    * @returns true if selectorText is supported selector
    */
   private evalSupportsSelector(selectorText: string): boolean {
-    const sph = new StyleParserHandler(null);
-    const tokenizer = new CssTokenizer.Tokenizer(selectorText + "{}", sph);
+    class SilentStyleParserHandler extends StyleParserHandler {
+      override errorMsg(
+        ..._args: Parameters<StyleParserHandler["errorMsg"]>
+      ): void {}
+    }
+
+    const sph = new SilentStyleParserHandler(null);
+    const normalizedSelectorText = replaceScopeAmpersands(selectorText);
+    const tokenizer = new CssTokenizer.Tokenizer(
+      normalizedSelectorText + "{}",
+      sph,
+    );
     const parser = new CssParser.Parser(
       CssParser.actionsBase,
       tokenizer,
@@ -1514,6 +1525,14 @@ export class StyleInstance
   ): Task.Result<boolean> {
     const flowPosition = this.currentLayoutPosition.flowPositions[flowName];
     if (!flowPosition || !this.matchPageSide(flowPosition.startBreakType)) {
+      // On blank pages created by spread breaks (e.g., break-after: left),
+      // still try to place deferred page floats such as footnotes that were
+      // deferred from the previous page. (Issue #1880)
+      if (flowPosition) {
+        this.setFormattingContextToColumn(column, flowName);
+        column.init();
+        return this.layoutDeferredPageFloats(column);
+      }
       return Task.newResult(true);
     }
 
@@ -1611,6 +1630,21 @@ export class StyleInstance
                       column,
                       newPosition,
                     );
+                  // CSS Fragmentation: forced break-after on the last child
+                  // of a fragmentainer has no effect when there is no more
+                  // content after it. When all content in the flow is consumed
+                  // (newPosition is null and no remaining flow chunks) and the
+                  // column has a pageBreakType from the last element's
+                  // break-after, clear it to avoid generating unnecessary
+                  // blank pages. (Issue #1880)
+                  if (!newPosition && column.pageBreakType) {
+                    // Count remaining positions (excluding current and removed)
+                    const remainingPositions =
+                      flowPosition.positions.length - removedIndices.length - 1; // -1 for current position being removed
+                    if (remainingPositions <= 0) {
+                      column.pageBreakType = null;
+                    }
+                  }
                   if (column.pageBreakType && lastAfterPosition) {
                     selected.chunkPosition = lastAfterPosition;
 
@@ -1671,6 +1705,59 @@ export class StyleInstance
             column.saveDistanceToBlockEndFloats();
             const edge = column.pageFloatLayoutContext.getMaxReachedAfterEdge();
             column.updateMaxReachedAfterEdge(edge);
+
+            // CSS GCPM §2.4.2: "The max-height property on the footnote area
+            // limits the size of this area, unless the page contains only
+            // footnotes." (Issue #1878)
+            // Detect pages with only footnote continuation(s) and no body
+            // content. If the column placed no body content (computedBlockSize
+            // is 0) and there are footnote fragments with max-height, remove
+            // those fragments and retry without max-height.
+            if (column.computedBlockSize === 0) {
+              const colCtx =
+                column.pageFloatLayoutContext as PageFloats.PageFloatLayoutContext;
+              // Traverse up the context hierarchy to find footnote fragments
+              // (footnotes are stored at the PAGE-level context)
+              let ctx: PageFloats.PageFloatLayoutContext | null = colCtx;
+              while (ctx) {
+                const footnoteFragments = ctx.floatFragments.filter(
+                  (f) => "isFootnote" in f.area && (f.area as any).isFootnote,
+                );
+                if (
+                  footnoteFragments.length > 0 &&
+                  !ctx.ignoreFootnoteAreaMaxHeight
+                ) {
+                  const hasMaxHeight = footnoteFragments.some((f) => {
+                    const cs = getComputedStyle(f.area.element);
+                    const isSet = (v: string) => v !== "" && v !== "none";
+                    // Check the logical property first, then the
+                    // corresponding physical property for block direction
+                    return (
+                      isSet(cs.getPropertyValue("max-block-size")) ||
+                      isSet(
+                        (f.area as any).vertical ? cs.maxWidth : cs.maxHeight,
+                      )
+                    );
+                  });
+                  if (hasMaxHeight) {
+                    ctx.ignoreFootnoteAreaMaxHeight = true;
+                    for (const frag of footnoteFragments) {
+                      // Remove fragment so it can be re-laid out
+                      colCtx.removePageFloatFragment(frag, true);
+                      // Remove deferred continuation from first pass
+                      const float = frag.continuations[0]?.float;
+                      if (float) {
+                        ctx.removeFloatDeferredToNext(float);
+                      }
+                    }
+                    // Invalidate column to trigger retry
+                    colCtx.invalidate();
+                    break;
+                  }
+                }
+                ctx = ctx.parent;
+              }
+            }
           }
           frame.finish(true);
         });

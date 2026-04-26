@@ -20,6 +20,7 @@
  */
 import * as Base from "./base";
 import * as Css from "./css";
+import { expandNesting } from "./css-nesting";
 import * as CssTokenizer from "./css-tokenizer";
 import * as Exprs from "./exprs";
 import * as Logging from "./logging";
@@ -1203,6 +1204,28 @@ export class Parser {
     }
   }
 
+  skipPseudoFunctionContents(): boolean {
+    let depth = 0;
+    while (true) {
+      const token = this.tokenizer.token();
+      switch (token.type) {
+        case TokenType.EOF:
+          return false;
+        case TokenType.C_PAR:
+          if (depth === 0) {
+            return true;
+          }
+          depth--;
+          break;
+        case TokenType.O_PAR:
+        case TokenType.FUNC:
+          depth++;
+          break;
+      }
+      this.tokenizer.consume();
+    }
+  }
+
   /**
    * Read `an+b` argument of pseudoclasses. Roughly based on the algorithm at
    * https://drafts.csswg.org/css-syntax/#the-anb-type
@@ -1777,8 +1800,10 @@ export class Parser {
                     break;
                   }
                 default:
-                  // TODO
-                  params = this.readPseudoParams();
+                  params = [];
+                  if (!this.skipPseudoFunctionContents()) {
+                    break pseudoclassType;
+                  }
               }
               token = tokenizer.token();
               if (token.type == TokenType.C_PAR) {
@@ -2668,6 +2693,17 @@ export class Parser {
           tokenizer.consume();
           continue;
         case Action.ERROR_SEMICOL:
+          if (
+            parsingFunctionParam &&
+            this.errorBrackets.length == 0 &&
+            token.type == TokenType.COMMA
+          ) {
+            handler.nextSelector();
+            this.actions = actionsSelectorStart;
+            selectorStartPosition = token.position + 1;
+            tokenizer.consume();
+            continue;
+          }
           if (this.errorBrackets.length == 0) {
             this.actions = actionsBase;
           }
@@ -2684,6 +2720,57 @@ export class Parser {
             return false;
           }
           if (parsingFunctionParam) {
+            if (this.actions === actionsErrorSelector) {
+              switch (token.type) {
+                case TokenType.COMMA:
+                  if (this.errorBrackets.length == 0) {
+                    handler.nextSelector();
+                    selectorStartPosition = token.position + 1;
+                    this.actions = actionsSelectorStart;
+                  }
+                  tokenizer.consume();
+                  continue;
+                case TokenType.C_PAR:
+                  if (this.errorBrackets.length == 0) {
+                    handler.endFuncWithSelector();
+                    tokenizer.consume();
+                    return true;
+                  }
+                  if (
+                    this.errorBrackets.length > 0 &&
+                    this.errorBrackets[this.errorBrackets.length - 1] ==
+                      token.type
+                  ) {
+                    this.errorBrackets.pop();
+                  }
+                  tokenizer.consume();
+                  continue;
+                case TokenType.O_BRC:
+                case TokenType.O_BRK:
+                case TokenType.O_PAR:
+                  this.errorBrackets.push(token.type + 1);
+                  tokenizer.consume();
+                  continue;
+                case TokenType.FUNC:
+                  this.errorBrackets.push(TokenType.C_PAR);
+                  tokenizer.consume();
+                  continue;
+                case TokenType.C_BRC:
+                case TokenType.C_BRK:
+                  if (
+                    this.errorBrackets.length > 0 &&
+                    this.errorBrackets[this.errorBrackets.length - 1] ==
+                      token.type
+                  ) {
+                    this.errorBrackets.pop();
+                  }
+                  tokenizer.consume();
+                  continue;
+                default:
+                  tokenizer.consume();
+                  continue;
+              }
+            }
             switch (token.type) {
               case TokenType.COMMA:
               case TokenType.C_PAR:
@@ -2806,6 +2893,33 @@ export function parseStylesheet(
   classes: string | null,
   media: string | null,
 ): Task.Result<boolean> {
+  const parserHandler = normalizeParserHandler(handler);
+  const expandedText = expandNesting(tokenizer.input);
+  if (expandedText !== tokenizer.input) {
+    return parseStylesheetInternal(
+      new CssTokenizer.Tokenizer(expandedText, parserHandler),
+      parserHandler,
+      baseURL,
+      classes,
+      media,
+    );
+  }
+  return parseStylesheetInternal(
+    tokenizer,
+    parserHandler,
+    baseURL,
+    classes,
+    media,
+  );
+}
+
+function parseStylesheetInternal(
+  tokenizer: CssTokenizer.Tokenizer,
+  handler: ParserHandler,
+  baseURL: string,
+  classes: string | null,
+  media: string | null,
+): Task.Result<boolean> {
   const frame: Task.Frame<boolean> = Task.newFrame("parseStylesheet");
   const parser = new Parser(actionsBase, tokenizer, handler, baseURL);
   let condition: Css.Expr = null;
@@ -2870,17 +2984,40 @@ export function parseStylesheetFromText(
   classes: string | null,
   media: string | null,
 ): Task.Result<boolean> {
+  const parserHandler = normalizeParserHandler(handler);
   return Task.handle(
     "parseStylesheetFromText",
     (frame) => {
-      const tok = new CssTokenizer.Tokenizer(text, handler);
-      parseStylesheet(tok, handler, baseURL, classes, media).thenFinish(frame);
+      const tok = new CssTokenizer.Tokenizer(text, parserHandler);
+      parseStylesheet(tok, parserHandler, baseURL, classes, media).thenFinish(
+        frame,
+      );
     },
     (frame, err) => {
       Logging.logger.warn(err, `Failed to parse stylesheet text: ${text}`);
       frame.finish(false);
     },
   );
+}
+
+function normalizeParserHandler(handler: ParserHandler): ParserHandler {
+  if (handler instanceof DispatchParserHandler) {
+    return handler;
+  }
+  if (handler instanceof SlaveParserHandler) {
+    if (handler.owner) {
+      return handler.owner;
+    }
+    // Some parser entry points are passed a top-level slave handler. Wrap it in
+    // a dispatch handler once so selector functions parse through the normal
+    // dispatch path and the slave retains a stable owner reference.
+    const dispatchHandler = new DispatchParserHandler();
+    dispatchHandler.flavor = handler.flavor;
+    dispatchHandler.slave = handler;
+    handler.owner = dispatchHandler;
+    return dispatchHandler;
+  }
+  return handler;
 }
 
 export function parseStylesheetFromURL(

@@ -22,6 +22,108 @@ import * as adapt_task from "../../../src/vivliostyle/task";
 import * as vivliostyle_logging from "../../../src/vivliostyle/logging";
 
 describe("css-validator", function () {
+  function parseCascade(cssText, done, callback) {
+    var handler = new adapt_csscasc.CascadeParserHandler(
+      null,
+      null,
+      null,
+      null,
+      null,
+      adapt_cssvalid.baseValidatorSet(),
+      true,
+    );
+    handler.startStylesheet(adapt_cssparse.StylesheetFlavor.AUTHOR);
+    adapt_task.start(function () {
+      adapt_cssparse
+        .parseStylesheetFromText(cssText, handler, null, null, null)
+        .then(function (result) {
+          expect(result).toBe(true);
+          callback(handler.finish(), handler);
+          done();
+        });
+      return adapt_task.newResult(true);
+    });
+  }
+
+  describe("background shorthand regression", function () {
+    it("keeps color in cascade for a semicolonless declaration", function (done) {
+      parseCascade("h1 { color: blue }", done, function (cascade) {
+        expect(cascade.tags.h1).toBeDefined();
+        expect(cascade.tags.h1.style.color).toBeDefined();
+      });
+    });
+
+    it("keeps background-color in cascade for a semicolonless declaration", function (done) {
+      parseCascade("ul { background: green }", done, function (cascade) {
+        expect(cascade.tags.ul).toBeDefined();
+        expect(cascade.tags.ul.style["background-color"]).toBeDefined();
+      });
+    });
+
+    it("keeps background-color in cascade when semicolonless declarations precede nested rules", function (done) {
+      parseCascade(
+        "ul { background: green } li:has(strong) { display: none; :has(> &) { background: red; } }",
+        done,
+        function (cascade) {
+          expect(cascade.tags.ul).toBeDefined();
+          expect(cascade.tags.ul.style["background-color"]).toBeDefined();
+        },
+      );
+    });
+  });
+
+  describe("invalid selector list recovery", function () {
+    it("drops an invalid selector list instead of salvaging later selectors", function (done) {
+      parseCascade(
+        "p { background: lime; } foo % address, p { background: red; }",
+        done,
+        function (cascade) {
+          expect(cascade.tags.p).toBeDefined();
+          expect(cascade.tags.p.style["background-color"]).toBeDefined();
+          expect(
+            cascade.tags.p.style["background-color"].value.toString(),
+          ).toBe("lime");
+        },
+      );
+    });
+
+    it("drops an invalid selector list even when it uses !important", function (done) {
+      parseCascade(
+        "foo % address, p { background: red ! important; } p { background: lime; }",
+        done,
+        function (cascade) {
+          expect(cascade.tags.p).toBeDefined();
+          expect(cascade.tags.p.style["background-color"]).toBeDefined();
+          expect(
+            cascade.tags.p.style["background-color"].value.toString(),
+          ).toBe("lime");
+        },
+      );
+    });
+  });
+
+  describe("contextually invalid selectors", function () {
+    it("invalidates selectors continued after pseudo-elements inside :is()", function (done) {
+      parseCascade(
+        ":is(*, ::before) * { color: purple; }",
+        done,
+        function (_cascade, handler) {
+          expect(handler.invalid).toBe(true);
+        },
+      );
+    });
+
+    it("invalidates pseudo-elements continued after pseudo-elements inside :is()", function (done) {
+      parseCascade(
+        ":is(*, ::before)::after { color: purple; }",
+        done,
+        function (_cascade, handler) {
+          expect(handler.invalid).toBe(true);
+        },
+      );
+    });
+  });
+
   describe("ValidatorSet", function () {
     it("should parse simple validator and simple rule", function (done) {
       var validatorSet = new adapt_cssvalid.ValidatorSet();
@@ -87,6 +189,75 @@ describe("css-validator", function () {
               ".test6 { foo: BAZ; }" +
               ".test6 { foo: biz; }" +
               "",
+            handler,
+            null,
+            null,
+            null,
+          )
+          .then(function (result) {
+            expect(result).toBe(true);
+            expect(warnListener).not.toHaveBeenCalled();
+            done();
+          });
+        return adapt_task.newResult(true);
+      });
+    });
+
+    it("should parse selector functions with a top-level cascade handler", function (done) {
+      var validatorSet = adapt_cssvalid.baseValidatorSet();
+      var handler = new adapt_csscasc.CascadeParserHandler(
+        null,
+        null,
+        null,
+        null,
+        null,
+        validatorSet,
+        true,
+      );
+      handler.startStylesheet(adapt_cssparse.StylesheetFlavor.USER_AGENT);
+      var warnListener = jasmine.createSpy("warn listener");
+      vivliostyle_logging.logger.addListener(
+        vivliostyle_logging.LogLevel.WARN,
+        warnListener,
+      );
+      adapt_task.start(function () {
+        adapt_cssparse
+          .parseStylesheetFromText(
+            '@namespace epub "http://www.idpf.org/2007/ops";\n:not(a[epub|type~="noteref"], a[epub\\:type~="noteref"], a[role~="doc-noteref"])::footnote-call { content: counter(footnote); }',
+            handler,
+            null,
+            null,
+            null,
+          )
+          .then(function (result) {
+            expect(result).toBe(true);
+            expect(warnListener).not.toHaveBeenCalled();
+            done();
+          });
+        return adapt_task.newResult(true);
+      });
+    });
+    it("should parse semantic footnote noteref default selectors", function (done) {
+      var validatorSet = adapt_cssvalid.baseValidatorSet();
+      var handler = new adapt_csscasc.CascadeParserHandler(
+        null,
+        null,
+        null,
+        null,
+        null,
+        validatorSet,
+        true,
+      );
+      handler.startStylesheet(adapt_cssparse.StylesheetFlavor.USER_AGENT);
+      var warnListener = jasmine.createSpy("warn listener");
+      vivliostyle_logging.logger.addListener(
+        vivliostyle_logging.LogLevel.WARN,
+        warnListener,
+      );
+      adapt_task.start(function () {
+        adapt_cssparse
+          .parseStylesheetFromText(
+            '@namespace epub "http://www.idpf.org/2007/ops";\na[epub|type="noteref"]:not(sup > *, :has(> sup)),\na[epub\\:type="noteref"]:not(sup > *, :has(> sup)),\na[role="doc-noteref"]:not(sup > *, :has(> sup)) { font-size: 0.75em; vertical-align: super; line-height: 0; }',
             handler,
             null,
             null,

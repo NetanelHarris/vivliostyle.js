@@ -33,6 +33,7 @@ import * as LayoutHelper from "./layout-helper";
 import * as Logging from "./logging";
 import * as Matchers from "./matchers";
 import * as Plugin from "./plugin";
+import * as SemanticFootnote from "./semantic-footnote";
 import * as Vtree from "./vtree";
 import { CssStyler, Layout } from "./types";
 import { TokenType } from "./css-tokenizer";
@@ -419,7 +420,7 @@ export const SPECIALS = {
 // Persist footnote-call counter values on the call element so footnote-marker
 // can render the same value even if page-based counters reset on the footnote
 // page or during re-layout.
-const FOOTNOTE_COUNTER_ATTR = "data-viv-footnote-counter";
+export const FOOTNOTE_COUNTER_ATTR = "data-viv-footnote-counter";
 function getFootnoteCounterMap(element: Element): Record<string, number[]> {
   const stored = element.getAttribute(FOOTNOTE_COUNTER_ATTR);
   if (!stored) {
@@ -456,6 +457,59 @@ function setFootnoteCounterValues(
   const map = getFootnoteCounterMap(element);
   map[counterName] = values;
   element.setAttribute(FOOTNOTE_COUNTER_ATTR, JSON.stringify(map));
+}
+
+function getDuplicateSemanticFootnoteCounterValues(
+  element: Element,
+  counterName: string,
+): number[] | null {
+  if (
+    !SemanticFootnote.isSemanticFootnoteNoterefElement(element) ||
+    element.hasAttribute(SemanticFootnote.SEMANTIC_FOOTNOTE_FIRST_REF_ATTR)
+  ) {
+    return null;
+  }
+  const storedOnElement = getFootnoteCounterMap(element)[counterName];
+  if (storedOnElement) {
+    return storedOnElement;
+  }
+  const href =
+    element.getAttribute("href") ||
+    element.getAttributeNS(Base.NS.XLINK, "href");
+  if (!href) {
+    return null;
+  }
+  const baseURL = element.baseURI || element.ownerDocument?.baseURI || "";
+  const resolvedHref = Base.resolveReferenceURL(href, baseURL);
+  if (resolvedHref === "#") {
+    return null;
+  }
+  if (resolvedHref.replace(/#.*$/, "") !== baseURL.replace(/#.*$/, "")) {
+    return null;
+  }
+  const hashIndex = resolvedHref.indexOf("#");
+  if (hashIndex < 0 || hashIndex === resolvedHref.length - 1) {
+    return null;
+  }
+  const target = element.ownerDocument?.getElementById(
+    resolvedHref.substring(hashIndex + 1),
+  );
+  if (!(target instanceof Element)) {
+    return null;
+  }
+  const storedOnTarget = getFootnoteCounterMap(target)[counterName];
+  if (storedOnTarget) {
+    setFootnoteCounterValues(element, counterName, storedOnTarget);
+    return storedOnTarget;
+  }
+  return null;
+}
+
+function hasNonTrivialFootnotePseudoContent(
+  pseudoProps: ElementStyle,
+): boolean {
+  const content = getProp(pseudoProps, "content");
+  return !!content && Vtree.nonTrivialContent(content.value);
 }
 
 export function isSpecialName(name: string): boolean {
@@ -2252,6 +2306,13 @@ export class ContentPropVisitor extends Css.FilterVisitor {
         setFootnoteCounterValues(this.element, counterName, values);
       }
     };
+    if (this.pseudoName === "footnote-call" && this.element) {
+      const storedDuplicateSemanticFootnoteCounter =
+        getDuplicateSemanticFootnoteCounterValues(this.element, counterName);
+      if (storedDuplicateSemanticFootnoteCounter) {
+        return formatCounterValues(storedDuplicateSemanticFootnoteCounter);
+      }
+    }
     if (this.pseudoName === "footnote-marker" && this.element) {
       const map = getFootnoteCounterMap(this.element);
       const stored = map[counterName];
@@ -3380,7 +3441,10 @@ export class CascadeInstance {
         resetMap["footnote"] = 0;
       }
     }
-    if (floatVal === Css.ident.footnote) {
+    if (
+      floatVal === Css.ident.footnote &&
+      !this.currentStyle["--viv-semantic-footnote-content"]
+    ) {
       if (!incrementMap) {
         incrementMap = Object.create(null);
       }
@@ -3691,12 +3755,44 @@ export class CascadeInstance {
         }
         const pseudoProps = pseudos[pseudoName];
         if (pseudoProps) {
+          const floatValue = getProp(this.currentStyle, "float")?.value;
+          const isSemanticNoteref =
+            element instanceof Element &&
+            SemanticFootnote.isSemanticFootnoteNoterefElement(element);
+          const isSemanticFootnote =
+            element instanceof Element &&
+            SemanticFootnote.isSemanticFootnoteElement(element);
+          const isSemanticFootnoteContent = !!getProp(
+            this.currentStyle,
+            "--viv-semantic-footnote-content",
+          );
+          const isFootnoteFloat = floatValue === Css.ident.footnote;
+          // Keep explicit empty before/after pseudos on rendered footnotes so
+          // author content:none can suppress the layout-level default separator.
+          const allowFootnoteBeforeAfter =
+            (pseudoName === "before" || pseudoName === "after") &&
+            (isFootnoteFloat ||
+              isSemanticFootnote ||
+              isSemanticFootnoteContent) &&
+            !!pseudoProps["content"];
+          const hasSemanticFootnotePseudoContent =
+            hasNonTrivialFootnotePseudoContent(pseudoProps);
+          const allowSemanticFootnoteCall =
+            pseudoName === "footnote-call" &&
+            isSemanticNoteref &&
+            hasSemanticFootnotePseudoContent;
+          const allowSemanticFootnoteMarker =
+            pseudoName === "footnote-marker" &&
+            (isSemanticFootnote || isSemanticFootnoteContent) &&
+            hasSemanticFootnotePseudoContent;
           if (
             ((pseudoName === "before" || pseudoName === "after") &&
               !(
+                allowFootnoteBeforeAfter ||
                 Vtree.nonTrivialContent(
                   (pseudoProps["content"] as CascadeValue)?.value,
-                ) || this.hasNonTrivialViewConditionalPseudoContent(pseudoProps)
+                ) ||
+                this.hasNonTrivialViewConditionalPseudoContent(pseudoProps)
               )) ||
             (pseudoName === "marker" &&
               !Display.isListItem(
@@ -3704,7 +3800,13 @@ export class CascadeInstance {
               )) ||
             ((pseudoName === "footnote-call" ||
               pseudoName === "footnote-marker") &&
-              getProp(this.currentStyle, "float")?.value !== Css.ident.footnote)
+              floatValue !== Css.ident.footnote &&
+              !allowSemanticFootnoteCall &&
+              !allowSemanticFootnoteMarker) ||
+            ((pseudoName === "footnote-call" ||
+              pseudoName === "footnote-marker") &&
+              isSemanticFootnoteContent &&
+              !hasSemanticFootnotePseudoContent)
           ) {
             delete pseudos[pseudoName];
           } else if (before) {
@@ -3740,6 +3842,15 @@ export class CascadeInstance {
                   element,
                   styler,
                 );
+                // Preserve the original footnote-marker content for semantic
+                // footnotes so vgen can re-evaluate it with the final counter.
+                const footnoteMarkerContent = pseudoProps[
+                  "content"
+                ] as CascadeValue;
+                if (footnoteMarkerContent) {
+                  this.currentStyle["_footnote-marker-content"] =
+                    footnoteMarkerContent;
+                }
                 // Set display: list-item for native ::marker to work
                 this.currentStyle["display"] = new CascadeValue(
                   Css.getName("list-item"),
@@ -4371,6 +4482,7 @@ export class CascadeParserHandler
   elementStyle: ElementStyle = null;
   conditionCount: number = 0;
   pseudoelement: string | null = null;
+  selectorFunctionContainsPseudoelement: boolean = false;
   footnoteContent: boolean = false;
   cascade: Cascade;
   state: ParseState;
@@ -4411,6 +4523,22 @@ export class CascadeParserHandler
     this.insertNonPrimary(chained);
   }
 
+  private invalidContinuationAfterPseudoelement(continuation: string): boolean {
+    if (this.pseudoelement) {
+      this.invalidSelector(
+        `::${this.pseudoelement} followed by ${continuation}`,
+      );
+      return true;
+    }
+    if (this.selectorFunctionContainsPseudoelement) {
+      this.invalidSelector(
+        `Selector containing pseudo-element followed by ${continuation}`,
+      );
+      return true;
+    }
+    return false;
+  }
+
   isInsideSelectorRule(mnemonics: string): boolean {
     if (this.state != ParseState.TOP) {
       this.reportAndSkip(mnemonics);
@@ -4421,6 +4549,9 @@ export class CascadeParserHandler
 
   override tagSelector(ns: string | null, name: string | null): void {
     if (!name && !ns) {
+      return;
+    }
+    if (this.invalidContinuationAfterPseudoelement(name ? name : "*")) {
       return;
     }
     if (name) {
@@ -4453,8 +4584,7 @@ export class CascadeParserHandler
   }
 
   override classSelector(name: string): void {
-    if (this.pseudoelement) {
-      this.invalidSelector(`::${this.pseudoelement} followed by .${name}`);
+    if (this.invalidContinuationAfterPseudoelement(`.${name}`)) {
       return;
     }
     this.specificity += 256;
@@ -4465,8 +4595,7 @@ export class CascadeParserHandler
     name: string,
     params: (number | string)[],
   ): void {
-    if (this.pseudoelement) {
-      this.invalidSelector(`::${this.pseudoelement} followed by :${name}`);
+    if (this.invalidContinuationAfterPseudoelement(`:${name}`)) {
       return;
     }
     switch (name.toLowerCase()) {
@@ -4583,6 +4712,9 @@ export class CascadeParserHandler
     name: string,
     params: (number | string)[],
   ): void {
+    if (this.invalidContinuationAfterPseudoelement(`::${name}`)) {
+      return;
+    }
     switch (name) {
       case "before":
       case "after":
@@ -4635,6 +4767,9 @@ export class CascadeParserHandler
   }
 
   override idSelector(id: string): void {
+    if (this.invalidContinuationAfterPseudoelement(`#${id}`)) {
+      return;
+    }
     this.specificity += 65536;
     this.chain.push(new CheckIdAction(id));
   }
@@ -4645,6 +4780,9 @@ export class CascadeParserHandler
     op: TokenType,
     value: string | null,
   ): void {
+    if (this.invalidContinuationAfterPseudoelement(`[${name}]`)) {
+      return;
+    }
     this.specificity += 256;
     name = name.toLowerCase();
     value = value || "";
@@ -4723,6 +4861,9 @@ export class CascadeParserHandler
   }
 
   override descendantSelector(): void {
+    if (this.invalidContinuationAfterPseudoelement("descendant selector")) {
+      return;
+    }
     const condition = `d${conditionCount++}`;
     this.processChain(
       new ConditionItemAction(
@@ -4734,6 +4875,9 @@ export class CascadeParserHandler
   }
 
   override childSelector(): void {
+    if (this.invalidContinuationAfterPseudoelement("child selector")) {
+      return;
+    }
     const condition = `c${conditionCount++}`;
     this.processChain(
       new ConditionItemAction(
@@ -4745,6 +4889,11 @@ export class CascadeParserHandler
   }
 
   override adjacentSiblingSelector(): void {
+    if (
+      this.invalidContinuationAfterPseudoelement("adjacent sibling selector")
+    ) {
+      return;
+    }
     const condition = `a${conditionCount++}`;
     this.processChain(
       new ConditionItemAction(
@@ -4756,6 +4905,11 @@ export class CascadeParserHandler
   }
 
   override followingSiblingSelector(): void {
+    if (
+      this.invalidContinuationAfterPseudoelement("following sibling selector")
+    ) {
+      return;
+    }
     const condition = `f${conditionCount++}`;
     this.processChain(
       new ConditionItemAction(
@@ -4773,6 +4927,7 @@ export class CascadeParserHandler
   override nextSelector(): void {
     this.finishChain();
     this.pseudoelement = null;
+    this.selectorFunctionContainsPseudoelement = false;
     this.footnoteContent = false;
     this.specificity = 0;
     this.chain = [];
@@ -4785,6 +4940,7 @@ export class CascadeParserHandler
     this.state = ParseState.SELECTOR;
     this.elementStyle = {} as ElementStyle;
     this.pseudoelement = null;
+    this.selectorFunctionContainsPseudoelement = false;
     this.specificity = 0;
     this.footnoteContent = false;
     this.chain = [];
@@ -4822,6 +4978,7 @@ export class CascadeParserHandler
       this.processChain(this.makeApplyRuleAction(this.specificity));
       this.chain = null;
       this.pseudoelement = null;
+      this.selectorFunctionContainsPseudoelement = false;
       this.viewConditionId = null;
       this.footnoteContent = false;
       this.specificity = 0;
@@ -4974,6 +5131,7 @@ export class MatchesParameterParserHandler extends CascadeParserHandler {
   chains: ChainedAction[][] = [];
   maxSpecificity: number = 0;
   selectorTexts: string[] = [];
+  containsPseudoelementSelector: boolean = false;
 
   constructor(public readonly parent: CascadeParserHandler) {
     super(
@@ -4989,6 +5147,7 @@ export class MatchesParameterParserHandler extends CascadeParserHandler {
   }
 
   override nextSelector(): void {
+    this.containsPseudoelementSelector ||= !!this.pseudoelement;
     if (this.chain) {
       this.chains.push(this.chain);
     }
@@ -5001,6 +5160,7 @@ export class MatchesParameterParserHandler extends CascadeParserHandler {
   }
 
   override endFuncWithSelector(): void {
+    this.containsPseudoelementSelector ||= !!this.pseudoelement;
     if (this.chain) {
       this.chains.push(this.chain);
     }
@@ -5016,6 +5176,8 @@ export class MatchesParameterParserHandler extends CascadeParserHandler {
       if (this.increasingSpecificity()) {
         this.parent.specificity += this.maxSpecificity;
       }
+      this.parent.selectorFunctionContainsPseudoelement ||=
+        this.containsPseudoelementSelector;
     } else {
       // func argument is empty or all invalid
       this.parentChain.push(new CheckConditionAction("")); // always fails

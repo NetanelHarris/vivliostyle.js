@@ -403,14 +403,19 @@ export class EPUBDocStore extends OPS.OPSDocStore {
       Logging.logger.error(`Failed to load ${docURL}. Invalid data.`);
     } else if (
       docURL.startsWith("http:") &&
-      Base.baseURL.startsWith("https:")
+      Base.baseURL.startsWith("https:") &&
+      // Browsers allow http://localhost from https:// (no mixed content block);
+      // the real error there is CORS, handled by likelyCorsProblem() below.
+      !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(?:[/?#]|$)/.test(
+        docURL,
+      )
     ) {
       Logging.logger.error(
         `Failed to load ${docURL}. Mixed Content ("http:" content on "https:" context) is not allowed.`,
       );
     } else if (likelyCorsProblem()) {
       Logging.logger.error(
-        `Failed to load ${docURL}. This may be caused by the server not allowing cross-origin resource sharing (CORS).`,
+        `Failed to load ${docURL}. This may be caused by network error, incorrect URL, or the server not allowing cross-origin resource sharing (CORS).`,
       );
     } else {
       Logging.logger.error(

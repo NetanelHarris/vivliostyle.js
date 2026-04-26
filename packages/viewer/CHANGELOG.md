@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# [2.42.0](https://github.com/vivliostyle/vivliostyle.js/compare/v2.41.0...v2.42.0) (2026-04-25)
+
+### Bug Fixes
+
+- Improve error messages for load failures and enable CORS on dev server ([58aefeb](https://github.com/vivliostyle/vivliostyle.js/commit/58aefeba711d8314488dcfdf4366ae6aa4cf9085))
+
 # [2.41.0](https://github.com/vivliostyle/vivliostyle.js/compare/v2.40.0...v2.41.0) (2026-04-11)
 
 ### Features

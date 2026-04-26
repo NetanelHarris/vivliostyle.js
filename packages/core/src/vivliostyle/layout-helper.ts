@@ -231,6 +231,44 @@ export function clearForcedColumnBreaks(prevNode: Node, currNode: Node): void {
 }
 
 /**
+ * Check if an element has non-root multi-column styles (column-count or
+ * column-width) set on its inline style.
+ *
+ * NOTE: Do not use `instanceof HTMLElement` for the check because it does
+ * not work when the node is inside an iframe. (Issue #1000)
+ */
+export function hasNonRootMultiColumnStyle(element: Element): boolean {
+  const style = (element as HTMLElement).style;
+  if (!style) return false;
+  return (
+    !isNaN(parseFloat(style.columnCount)) ||
+    !isNaN(parseFloat(style.columnWidth))
+  );
+}
+
+/**
+ * Check if the given element or any of its descendants establishes a
+ * non-root multi-column layout (via inline style).
+ */
+export function containsNonRootMultiColumn(element: Element): boolean {
+  if (
+    !element.hasAttribute("data-vivliostyle-column") &&
+    hasNonRootMultiColumnStyle(element)
+  ) {
+    return true;
+  }
+  for (const descendant of element.querySelectorAll("*")) {
+    if (
+      !descendant.hasAttribute("data-vivliostyle-column") &&
+      hasNonRootMultiColumnStyle(descendant)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Find the nearest ancestor element that establishes a multi-column
  * layout but is not the root column element.
  */
@@ -248,10 +286,7 @@ export function findAncestorNonRootMultiColumn(node: Node): Element | null {
       // This is the root column element.
       break;
     }
-    if (
-      !isNaN(parseFloat(style.columnCount)) ||
-      !isNaN(parseFloat(style.columnWidth))
-    ) {
+    if (hasNonRootMultiColumnStyle(elem as HTMLElement)) {
       return elem;
     }
     if (style.position === "absolute") {

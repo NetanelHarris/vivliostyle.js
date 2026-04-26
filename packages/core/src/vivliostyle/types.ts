@@ -690,6 +690,7 @@ export namespace PageFloats {
     writingMode: Css.Val;
     direction: Css.Val;
     floatFragments: PageFloatFragment[];
+    ignoreFootnoteAreaMaxHeight: boolean;
     readonly parent: PageFloatLayoutContext;
     readonly effectiveParent: PageFloatLayoutContext | null;
     readonly flowName: string | null;
@@ -717,10 +718,12 @@ export namespace PageFloats {
     findPageFloatFragment(float: PageFloat): PageFloatFragment | null;
     hasFloatFragments(condition?: (p1: PageFloatFragment) => boolean): boolean;
     hasContinuingFloatFragmentsInFlow(flowName: string): boolean;
+    markPageFloatAnchorSeen(float: PageFloat): void;
     registerPageFloatAnchor(float: PageFloat, anchorViewNode: Node): void;
     collectPageFloatAnchors(): any;
     isAnchorAlreadyAppeared(floatId: PageFloatID): boolean;
     deferPageFloat(continuation: PageFloatContinuation): void;
+    removeFloatDeferredToNext(float: PageFloat): void;
     hasPrecedingFloatsDeferredToNext(
       float: PageFloat,
       ignoreReference?: boolean,
@@ -733,6 +736,10 @@ export namespace PageFloats {
       flowName?: string | null,
     ): PageFloatContinuation[];
     getFloatsDeferredToNextInChildContexts(): PageFloat[];
+    initFootnoteRetryFromEmptyFragment(
+      float: PageFloat,
+      area: Layout.PageFloatArea,
+    ): boolean;
     checkAndForbidNotAllowedFloat(): boolean;
     checkAndForbidFloatFollowingDeferredFloat(): boolean;
     finish(): void;

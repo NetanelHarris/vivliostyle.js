@@ -108,6 +108,8 @@ export class ViewFactory
   private static FOOTNOTE_CALL_OWNER_ATTR = "data-viv-footnote-call-owner";
   document: Document;
   exprContentListener: Vtree.ExprContentListener;
+  private computedStyleParentFontSizeOverride: number | null = null;
+  private computedStyleParentLineHeightOverride: number | null = null;
 
   // provided by layout
   nodeContext: Vtree.NodeContext | null = null;
@@ -172,66 +174,34 @@ export class ViewFactory
     );
   }
 
-  private initializeSemanticFootnoteFirstRefOffsets(ownerDocument: Document) {
-    if (this.semanticFootnoteFirstRefOffsetsInitialized.value) {
-      return;
-    }
-    const anchorElements = ownerDocument.getElementsByTagName("a");
-    for (let i = 0; i < anchorElements.length; i++) {
-      const anchor = anchorElements.item(i);
-      if (!SemanticFootnote.isSemanticFootnoteNoterefElement(anchor)) {
-        continue;
-      }
-      const anchorHref =
-        anchor.getAttribute("href") ||
-        anchor.getAttributeNS(Base.NS.XLINK, "href");
-      if (!anchorHref) {
-        continue;
-      }
-      const resolvedHref = Base.resolveReferenceURL(
-        anchorHref,
-        this.xmldoc.url,
-      );
-      if (resolvedHref === "#") {
-        continue;
-      }
-      if (this.semanticFootnoteFirstRefOffsets.has(resolvedHref)) {
-        continue;
-      }
-      this.semanticFootnoteFirstRefOffsets.set(
-        resolvedHref,
-        this.xmldoc.getElementOffset(anchor),
-      );
-    }
-    this.semanticFootnoteFirstRefOffsetsInitialized.value = true;
-  }
-
-  /**
-   * True only for the first semantic footnote reference to the same target.
-   */
-  private shouldGenerateSemanticFootnote(element: Element): boolean {
+  private syncSemanticFootnoteCounterToTarget(element: Element): void {
     if (
       element.localName !== "a" ||
-      !SemanticFootnote.isSemanticFootnoteNoterefElement(element)
+      !SemanticFootnote.isSemanticFootnoteNoterefElement(element) ||
+      !SemanticFootnote.shouldGenerateSemanticFootnote(
+        element,
+        this.xmldoc.url,
+        (noteref) => this.xmldoc.getElementOffset(noteref),
+        this.semanticFootnoteFirstRefOffsets,
+        this.semanticFootnoteFirstRefOffsetsInitialized,
+      )
     ) {
-      return true;
+      return;
     }
-    const href =
-      element.getAttribute("href") ||
-      element.getAttributeNS(Base.NS.XLINK, "href");
-    if (!href) {
-      return true;
+    const footnoteCounter = element.getAttribute(
+      CssCascade.FOOTNOTE_COUNTER_ATTR,
+    );
+    if (!footnoteCounter) {
+      return;
     }
-    const resolvedHref = Base.resolveReferenceURL(href, this.xmldoc.url);
-    if (resolvedHref === "#") {
-      return true;
+    const target = SemanticFootnote.resolveSemanticFootnoteTarget(
+      element,
+      this.xmldoc.url,
+      (reference) => this.xmldoc.getElement(reference),
+    );
+    if (target) {
+      target.setAttribute(CssCascade.FOOTNOTE_COUNTER_ATTR, footnoteCounter);
     }
-    this.initializeSemanticFootnoteFirstRefOffsets(element.ownerDocument);
-    const firstOffset = this.semanticFootnoteFirstRefOffsets.get(resolvedHref);
-    if (firstOffset == null) {
-      return true;
-    }
-    return this.xmldoc.getElementOffset(element) === firstOffset;
   }
 
   createPseudoelementShadow(
@@ -257,15 +227,38 @@ export class ViewFactory
     const addedNames: string[] = [];
     const root = PseudoElement.document.createElementNS(Base.NS.SHADOW, "root");
     let att = root;
+    const suppressSemanticNoterefContent =
+      SemanticFootnote.isSemanticFootnoteNoterefElement(element) &&
+      !!pseudoMap["footnote-call"] &&
+      Vtree.nonTrivialContent(
+        (pseudoMap["footnote-call"]["content"] as CssCascade.CascadeValue)
+          ?.value,
+      );
     for (const name of PseudoElement.pseudoNames) {
       let elem: Element;
       if (name) {
         if (!pseudoMap[name]) {
           continue;
         }
+        const isSemanticFootnote =
+          SemanticFootnote.isSemanticFootnoteElement(element);
+        const isSemanticFootnoteContentInclude =
+          element.namespaceURI === Base.NS.SHADOW &&
+          element.localName === "include" &&
+          element.classList.contains("-vivliostyle-footnote-content");
+        if (
+          name == "footnote-call" &&
+          !SemanticFootnote.isSemanticFootnoteNoterefElement(element)
+        ) {
+          continue;
+        }
         if (
           name == "footnote-marker" &&
-          !(isRoot && this.isFootnote) &&
+          !(
+            isSemanticFootnote ||
+            isSemanticFootnoteContentInclude ||
+            (isRoot && this.isFootnote)
+          ) &&
           !this.nodeContext?.pluginProps["nestedFootnoteDetached"] // (Issue #1352)
         ) {
           continue;
@@ -292,10 +285,21 @@ export class ViewFactory
         if (
           name === "before" ||
           name === "after" ||
+          name === "footnote-call" ||
           name === "footnote-marker"
         ) {
           const content = pseudoMap[name]["content"] as CssCascade.CascadeValue;
-          if (!content || !Vtree.nonTrivialContent(content.value)) {
+          const allowFootnoteEmptyPseudo =
+            (name === "before" || name === "after") &&
+            ((computedStyle["float"] as Css.Val) === Css.ident.footnote ||
+              isSemanticFootnote ||
+              isSemanticFootnoteContentInclude) &&
+            !!content;
+          if (
+            !content ||
+            (!Vtree.nonTrivialContent(content.value) &&
+              !allowFootnoteEmptyPseudo)
+          ) {
             continue;
           }
         }
@@ -303,6 +307,9 @@ export class ViewFactory
         elem = PseudoElement.document.createElementNS(Base.NS.XHTML, "span");
         PseudoElement.setPseudoName(elem, name);
       } else {
+        if (suppressSemanticNoterefContent) {
+          continue;
+        }
         elem = PseudoElement.document.createElementNS(
           Base.NS.SHADOW,
           "content",
@@ -429,7 +436,13 @@ export class ViewFactory
     ) {
       if (
         templateURLVal !== Css.ident.footnote ||
-        this.shouldGenerateSemanticFootnote(element)
+        SemanticFootnote.shouldGenerateSemanticFootnote(
+          element,
+          this.xmldoc.url,
+          (noteref) => this.xmldoc.getElementOffset(noteref),
+          this.semanticFootnoteFirstRefOffsets,
+          this.semanticFootnoteFirstRefOffsetsInitialized,
+        )
       ) {
         const url =
           templateURLVal instanceof Css.URL
@@ -969,6 +982,7 @@ export class ViewFactory
       ? this.nodeContext.shadowContext.styler
       : this.styler;
     let elementStyle = styler.getStyle(element, false);
+    this.syncSemanticFootnoteCounterToTarget(element);
     if (!this.nodeContext.shadowContext) {
       const offset = this.xmldoc.getElementOffset(element);
       Matchers.NthFragmentMatcher.registerFragmentIndex(
@@ -978,6 +992,26 @@ export class ViewFactory
       );
     }
     const computedStyle: { [key: string]: Css.Val } = {};
+    const semanticFootnoteStyleAccess: SemanticFootnote.SemanticFootnoteStyleAccess =
+      {
+        getStyle: (target) => this.styler.getStyle(target, false),
+        getProp: (style, propName) =>
+          style ? CssCascade.getProp(style, propName) : null,
+        getStyleMap: (style, mapName) => CssCascade.getStyleMap(style, mapName),
+        getMutableStyleMap: (style, mapName) =>
+          CssCascade.getMutableStyleMap(style, mapName),
+        createCascadeValue: (value, priority) =>
+          new CssCascade.CascadeValue(value, priority),
+        filterFootnoteMarkerContent: (content, target) =>
+          content.filterValue(
+            new CssCascade.ContentPropVisitor(
+              this.styler.cascade,
+              target,
+              this.styler.cascade.counterResolver,
+              "footnote-marker",
+            ),
+          ).value,
+      };
     if (!this.nodeContext.parent) {
       const inheritedValues = this.inheritFromSourceParent(elementStyle);
       elementStyle = inheritedValues.elementStyle;
@@ -1011,6 +1045,22 @@ export class ViewFactory
       elementStyle = inheritedValues.elementStyle;
       this.nodeContext.lang = inheritedValues.lang;
     }
+    elementStyle = SemanticFootnote.mergeSemanticFootnoteIncludeStyle(
+      element,
+      elementStyle,
+      this.nodeContext.shadowContext as Vtree.ShadowContext,
+      this.xmldoc.url,
+      (reference) => this.xmldoc.getElement(reference),
+      CssCascade.FOOTNOTE_COUNTER_ATTR,
+      semanticFootnoteStyleAccess,
+    );
+    elementStyle = SemanticFootnote.mergeSemanticFootnoteRootStyle(
+      element,
+      elementStyle,
+      this.nodeContext.shadowContext as Vtree.ShadowContext,
+      this.context,
+      semanticFootnoteStyleAccess,
+    );
     this.nodeContext.vertical = this.computeStyle(
       this.nodeContext.vertical,
       this.nodeContext.direction === "rtl",
@@ -1052,6 +1102,14 @@ export class ViewFactory
     }
 
     let display = computedStyle["display"];
+
+    if (
+      SemanticFootnote.isSemanticFootnoteElement(element) &&
+      !isSemanticFootnoteInRootedShadow &&
+      element.hasAttribute(SemanticFootnote.SEMANTIC_FOOTNOTE_REFERENCED_ATTR)
+    ) {
+      display = computedStyle["display"] = Css.ident.none;
+    }
 
     if (Css.isDefaultingValue(display)) {
       if (display === Css.ident.initial || display === Css.ident.unset) {
@@ -1129,7 +1187,20 @@ export class ViewFactory
       const isFootnoteBodyInFootnoteArea =
         this.isFootnote &&
         (!this.nodeContext?.parent ||
-          this.nodeContext.pluginProps["nestedFootnoteDetached"]);
+          this.nodeContext.pluginProps["nestedFootnoteDetached"] ||
+          isSemanticFootnoteInRootedShadow);
+      const semanticFootnoteStyle =
+        SemanticFootnote.getSemanticFootnoteStyleState(
+          element,
+          this.nodeContext.shadowContext as Vtree.ShadowContext,
+          semanticFootnoteStyleAccess,
+        );
+      SemanticFootnote.refreshSemanticFootnoteMarkerContent(
+        semanticFootnoteStyle.sourceStyle,
+        computedStyle,
+        this.context,
+      );
+      footnoteDisplay = semanticFootnoteStyle.footnoteDisplay;
 
       let floating =
         floatSide instanceof Css.SpaceList ||
@@ -1150,7 +1221,8 @@ export class ViewFactory
         // Don't want to set it in view DOM CSS.
         delete computedStyle["float"];
         if (floatSide === Css.ident.footnote) {
-          footnoteDisplay = computedStyle["footnote-display"];
+          footnoteDisplay =
+            computedStyle["footnote-display"] || footnoteDisplay;
           usesOutsideFootnoteMarker = !!computedStyle["--viv-marker-content"];
           if (isFootnoteBodyInFootnoteArea) {
             // Root of the footnote body being rendered in footnote area.
@@ -1158,9 +1230,14 @@ export class ViewFactory
             // entry, with call marker handled separately. (Issue #1352)
             floating = false;
             const footnoteDisplayName = footnoteDisplay?.toString();
+            if (footnoteDisplayName) {
+              computedStyle["--viv-footnote-display"] =
+                Css.getName(footnoteDisplayName);
+            }
             display = usesOutsideFootnoteMarker
               ? Css.getName("list-item")
-              : footnoteDisplayName === "inline"
+              : footnoteDisplayName === "inline" ||
+                  footnoteDisplayName === "compact"
                 ? Css.ident.inline
                 : Css.ident.block;
             computedStyle["display"] = display;
@@ -1171,6 +1248,28 @@ export class ViewFactory
             // false — layout needs this to collect the float properly.
             computedStyle["display"] = Css.ident.inline;
           }
+        }
+      }
+      if (
+        isFootnoteBodyInFootnoteArea &&
+        SemanticFootnote.isSemanticFootnoteElement(element)
+      ) {
+        usesOutsideFootnoteMarker =
+          usesOutsideFootnoteMarker || !!computedStyle["--viv-marker-content"];
+        const footnoteDisplayName = footnoteDisplay?.toString();
+        if (footnoteDisplayName) {
+          computedStyle["--viv-footnote-display"] =
+            Css.getName(footnoteDisplayName);
+        }
+        if (usesOutsideFootnoteMarker) {
+          display = computedStyle["display"] = Css.getName("list-item");
+        }
+        if (
+          !usesOutsideFootnoteMarker &&
+          (footnoteDisplayName === "inline" ||
+            footnoteDisplayName === "compact")
+        ) {
+          display = computedStyle["display"] = Css.ident.inline;
         }
       }
       if (clearSide) {
@@ -1357,7 +1456,12 @@ export class ViewFactory
           }
         }
       }
-      const footnotePolicy = computedStyle["footnote-policy"] as Css.Ident;
+      const footnotePolicy =
+        (computedStyle["footnote-policy"] as Css.Ident) ||
+        semanticFootnoteStyle.footnotePolicy;
+      if (footnotePolicy && !Css.isDefaultingValue(footnotePolicy)) {
+        computedStyle["--viv-footnote-policy"] = footnotePolicy;
+      }
       this.nodeContext.footnotePolicy =
         footnotePolicy && !Css.isDefaultingValue(footnotePolicy)
           ? footnotePolicy
@@ -2896,6 +3000,68 @@ export class ViewFactory
     return null;
   }
 
+  private getFootnoteAreaInheritedMetrics(): {
+    fontSize: number | null;
+    lineHeight: number | null;
+  } {
+    const pageContextElement = this.page.pageAreaElement?.parentElement
+      ?.parentElement as HTMLElement | null;
+    const pageContextStyle = pageContextElement
+      ? this.viewport.window.getComputedStyle(pageContextElement)
+      : null;
+    const fontSize =
+      (pageContextStyle &&
+        this.parsePlusLayoutUnitAdj(pageContextStyle.fontSize)) ||
+      this.context.rootFontSize ||
+      this.context.initialFontSize;
+    const lineHeight =
+      (pageContextStyle &&
+        this.parsePlusLayoutUnitAdj(pageContextStyle.lineHeight)) ||
+      this.context.rootLineHeight ||
+      fontSize * this.context.pref.lineHeight;
+    return { fontSize, lineHeight };
+  }
+
+  private getComputedFontMetrics(
+    element: Element,
+    fallback: { fontSize: number | null; lineHeight: number | null },
+  ): { fontSize: number | null; lineHeight: number | null } {
+    const style = this.viewport.window.getComputedStyle(element);
+    const fontSize =
+      this.parsePlusLayoutUnitAdj(style.fontSize) ?? fallback.fontSize;
+    const lineHeight =
+      this.parsePlusLayoutUnitAdj(style.lineHeight) ??
+      fallback.lineHeight ??
+      (fontSize != null ? fontSize * this.context.pref.lineHeight : null);
+    return { fontSize, lineHeight };
+  }
+
+  private getParentViewStyle(): CSSStyleDeclaration | null {
+    return this.nodeContext?.parent?.viewNode?.nodeType === 1
+      ? this.viewport.window.getComputedStyle(
+          this.nodeContext.parent.viewNode as Element,
+        )
+      : null;
+  }
+
+  private getParentComputedMetrics(parentStyle: CSSStyleDeclaration | null): {
+    fontSize: number | null;
+    lineHeight: number | null;
+  } {
+    return {
+      fontSize:
+        this.computedStyleParentFontSizeOverride ??
+        (parentStyle
+          ? this.parsePlusLayoutUnitAdj(parentStyle.fontSize)
+          : this.context.rootFontSize),
+      lineHeight:
+        this.computedStyleParentLineHeightOverride ??
+        (parentStyle
+          ? this.parsePlusLayoutUnitAdj(parentStyle.lineHeight)
+          : this.context.rootLineHeight),
+    };
+  }
+
   /**
    * Get "lh" unit size in px
    * @return line-height in px, or null if cannot be determined
@@ -2905,16 +3071,9 @@ export class ViewFactory
     fontSize: Css.Val,
     lineHeight: Css.Val,
   ): number | null {
-    const parentStyle =
-      this.nodeContext?.parent?.viewNode?.nodeType === 1
-        ? this.viewport.window.getComputedStyle(
-            this.nodeContext.parent.viewNode as Element,
-          )
-        : null;
-
-    const parentLineHeight = parentStyle
-      ? this.parsePlusLayoutUnitAdj(parentStyle.lineHeight)
-      : this.context.rootLineHeight;
+    const parentStyle = this.getParentViewStyle();
+    const parentMetrics = this.getParentComputedMetrics(parentStyle);
+    const parentLineHeight = parentMetrics.lineHeight;
 
     if (propName === "line-height" || propName === "font-size") {
       // For line-height property or for font-size property, return parent line-height.
@@ -2972,9 +3131,7 @@ export class ViewFactory
       if (fontSize && !(fontSize instanceof Css.Numeric)) {
         return null; // cannot determine
       }
-      const parentFontSize = parentStyle
-        ? this.parsePlusLayoutUnitAdj(parentStyle.fontSize)
-        : this.context.rootFontSize;
+      const parentFontSize = parentMetrics.fontSize;
       if (fontSize instanceof Css.Numeric) {
         const fontSizePx = CssCascade.convertFontSizeToPx(
           fontSize,
@@ -3002,16 +3159,8 @@ export class ViewFactory
    * @return font-size in px, or null if cannot be determined
    */
   private getEmUnitSize(propName: string, fontSize: Css.Val): number | null {
-    const parentStyle =
-      this.nodeContext?.parent?.viewNode?.nodeType === 1
-        ? this.viewport.window.getComputedStyle(
-            this.nodeContext.parent.viewNode as Element,
-          )
-        : null;
-
-    const parentFontSize = parentStyle
-      ? this.parsePlusLayoutUnitAdj(parentStyle.fontSize)
-      : this.context.rootFontSize;
+    const parentStyle = this.getParentViewStyle();
+    const parentFontSize = this.getParentComputedMetrics(parentStyle).fontSize;
 
     if (propName === "font-size" || fontSize == null) {
       // For font-size property or when font-size is not specified, return parent font-size.
@@ -3166,77 +3315,104 @@ export class ViewFactory
 
     const pseudoMap = CssCascade.getStyleMap(footnoteStyle, "_pseudos");
     vertical = this.computeStyle(vertical, rtl, footnoteStyle, computedStyle);
-    if (pseudoMap && pseudoMap["before"]) {
-      const pseudoStyle = pseudoMap["before"];
-      const hasSpecifiedDisplay = !!CssCascade.getProp(pseudoStyle, "display");
-      const childComputedStyle: { [key: string]: Css.Val } = {};
-      const span = this.createElement(Base.NS.XHTML, "span");
-      PseudoElement.setPseudoName(span, "before");
-      target.appendChild(span);
-      this.computeStyle(vertical, rtl, pseudoStyle, childComputedStyle);
-      if (!hasSpecifiedDisplay) {
-        childComputedStyle["display"] = Css.ident.block;
-      }
-
-      const contentCascadeValue = CssCascade.getProp(pseudoStyle, "content");
-      if (contentCascadeValue) {
-        const contentElement =
-          this.sourceNode?.nodeType === 1
-            ? (this.sourceNode as Element)
-            : this.xmldoc.root;
-        childComputedStyle["content"] = contentCascadeValue
-          .filterValue(
-            new CssCascade.ContentPropVisitor(
-              this.styler.cascade,
-              contentElement,
-              this.styler.cascade.counterResolver,
-              "before",
-            ),
-          )
-          .evaluate(this.context, "content");
-      }
-
-      const content = childComputedStyle["content"];
-      if (Vtree.nonTrivialContent(content)) {
-        content.visit(
-          new Vtree.ContentPropertyHandler(
-            span,
-            this.context,
-            content,
-            this.exprContentListener,
-          ),
-        );
-
-        const images = span.querySelectorAll("img[src]");
-        for (let i = 0; i < images.length; i++) {
-          const image = images[i] as HTMLImageElement;
-          const src = image.getAttribute("src");
-          if (!src) {
-            continue;
-          }
-          const fetcher = Net.loadElement(image, src);
-          fetchers.push(fetcher);
-          this.page.fetchers.push(fetcher);
-        }
-
-        const rootSrc = span.getAttribute("src");
-        if (rootSrc) {
-          let image = span.querySelector("img") as HTMLImageElement | null;
-          if (!image) {
-            image = this.document.createElement("img");
-            image.setAttribute("src", rootSrc);
-            span.appendChild(image);
-          }
-          const fetcher = Net.loadElement(image, rootSrc);
-          fetchers.push(fetcher);
-          this.page.fetchers.push(fetcher);
-        }
-      }
-      delete childComputedStyle["content"];
-      this.applyComputedStyles(span, childComputedStyle);
+    const inheritedMetrics = this.getFootnoteAreaInheritedMetrics();
+    if (!computedStyle["font-size"] && inheritedMetrics.fontSize != null) {
+      computedStyle["font-size"] = new Css.Numeric(
+        inheritedMetrics.fontSize,
+        "px",
+      );
     }
     delete computedStyle["content"];
-    this.applyComputedStyles(target, computedStyle);
+    const prevFontSizeOverride = this.computedStyleParentFontSizeOverride;
+    const prevLineHeightOverride = this.computedStyleParentLineHeightOverride;
+    // @footnote and @footnote::before resolve em/lh units from the page context,
+    // not from the noteref that triggered semantic footnote generation.
+    this.computedStyleParentFontSizeOverride = inheritedMetrics.fontSize;
+    this.computedStyleParentLineHeightOverride = inheritedMetrics.lineHeight;
+    try {
+      this.applyComputedStyles(target, computedStyle);
+      const targetMetrics = this.getComputedFontMetrics(
+        target,
+        inheritedMetrics,
+      );
+      this.computedStyleParentFontSizeOverride = targetMetrics.fontSize;
+      this.computedStyleParentLineHeightOverride = targetMetrics.lineHeight;
+      if (pseudoMap && pseudoMap["before"]) {
+        const pseudoStyle = pseudoMap["before"];
+        const hasSpecifiedDisplay = !!CssCascade.getProp(
+          pseudoStyle,
+          "display",
+        );
+        const childComputedStyle: { [key: string]: Css.Val } = {};
+        const span = this.createElement(Base.NS.XHTML, "span");
+        PseudoElement.setPseudoName(span, "before");
+        target.appendChild(span);
+        this.computeStyle(vertical, rtl, pseudoStyle, childComputedStyle);
+        if (!hasSpecifiedDisplay) {
+          childComputedStyle["display"] = Css.ident.block;
+        }
+
+        const contentCascadeValue = CssCascade.getProp(pseudoStyle, "content");
+        if (contentCascadeValue) {
+          const contentElement =
+            this.sourceNode?.nodeType === 1
+              ? (this.sourceNode as Element)
+              : this.xmldoc.root;
+          childComputedStyle["content"] = contentCascadeValue
+            .filterValue(
+              new CssCascade.ContentPropVisitor(
+                this.styler.cascade,
+                contentElement,
+                this.styler.cascade.counterResolver,
+                "before",
+              ),
+            )
+            .evaluate(this.context, "content");
+        }
+
+        const content = childComputedStyle["content"];
+        if (Vtree.nonTrivialContent(content)) {
+          content.visit(
+            new Vtree.ContentPropertyHandler(
+              span,
+              this.context,
+              content,
+              this.exprContentListener,
+            ),
+          );
+
+          const images = span.querySelectorAll("img[src]");
+          for (let i = 0; i < images.length; i++) {
+            const image = images[i] as HTMLImageElement;
+            const src = image.getAttribute("src");
+            if (!src) {
+              continue;
+            }
+            const fetcher = Net.loadElement(image, src);
+            fetchers.push(fetcher);
+            this.page.fetchers.push(fetcher);
+          }
+
+          const rootSrc = span.getAttribute("src");
+          if (rootSrc) {
+            let image = span.querySelector("img") as HTMLImageElement | null;
+            if (!image) {
+              image = this.document.createElement("img");
+              image.setAttribute("src", rootSrc);
+              span.appendChild(image);
+            }
+            const fetcher = Net.loadElement(image, rootSrc);
+            fetchers.push(fetcher);
+            this.page.fetchers.push(fetcher);
+          }
+        }
+        delete childComputedStyle["content"];
+        this.applyComputedStyles(span, childComputedStyle);
+      }
+    } finally {
+      this.computedStyleParentFontSizeOverride = prevFontSizeOverride;
+      this.computedStyleParentLineHeightOverride = prevLineHeightOverride;
+    }
     if (fetchers.length) {
       return TaskUtil.waitForFetchers(fetchers).thenReturn(vertical);
     }
