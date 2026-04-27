@@ -2153,6 +2153,32 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
           0,
           this.vertical,
         );
+        if (nodeContext.floatSide === "footnote") {
+          const footnote = float as Footnote;
+          if (footnote.footnotePolicy === Css.ident.line) {
+            let anchorContext: Vtree.NodeContext | null = nodeContextAfter;
+            while (anchorContext) {
+              const sourceNode = anchorContext.shadowContext
+                ? anchorContext.shadowContext.owner
+                : anchorContext.sourceNode;
+              if (sourceNode === footnote.policyAnchorNode) {
+                const viewNode = anchorContext.viewNode as Element;
+                if (viewNode && viewNode.nodeType === 1) {
+                  const rect = LayoutHelper.getElementClientRectAdjusted(
+                    this.clientLayout,
+                    viewNode,
+                    this.vertical,
+                  );
+                  if (rect.right >= rect.left && rect.bottom >= rect.top) {
+                    edge = this.vertical ? rect.left : rect.bottom;
+                  }
+                }
+                break;
+              }
+              anchorContext = anchorContext.parent;
+            }
+          }
+        }
         // For footnotes, calculateEdge may return NaN because footnote-call
         // has vertical-align: super. Compute edge from the element's
         // bounding rect to enable footnote fragmentation.

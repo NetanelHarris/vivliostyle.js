@@ -970,14 +970,18 @@ export class PageFloatLayoutContext
     for (let i = this.floatsDeferredToNext.length - 1; i >= 0; i--) {
       const continuation = this.floatsDeferredToNext[i];
       const float = continuation.float;
+      const existingFragment = this.findPageFloatFragment(float);
       if (
         this.floatReference === FloatReference.PAGE &&
         "footnotePolicy" in float &&
         float.footnotePolicy === Css.ident.line &&
-        this.footnoteAnchorsSeen.has(float.getId())
+        this.footnoteAnchorsSeen.has(float.getId()) &&
+        !existingFragment
       ) {
         // Once the anchor line has already appeared on the page, a deferred
         // footnote-policy: line footnote can no longer move independently.
+        // If a fragment already started on this page, the deferred part is
+        // just the continuation and should remain allowed to split.
         if (this.locked) {
           this.invalidate();
           return;
