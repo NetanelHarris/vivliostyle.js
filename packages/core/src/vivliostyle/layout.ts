@@ -2147,6 +2147,20 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
       } else if (this.nodeContextOverflowingDueToRepetitiveElements) {
         return Task.newResult(null);
       } else {
+        const getFootnoteEdgeFromViewNode = (viewNode: Node | null): number => {
+          if (!viewNode || viewNode.nodeType !== 1) {
+            return NaN;
+          }
+          const rect = LayoutHelper.getElementClientRectAdjusted(
+            this.clientLayout,
+            viewNode as Element,
+            this.vertical,
+          );
+          if (rect.right >= rect.left && rect.bottom >= rect.top) {
+            return this.vertical ? rect.left : rect.bottom;
+          }
+          return NaN;
+        };
         let edge = LayoutHelper.calculateEdge(
           nodeContextAfter,
           this.clientLayout,
@@ -2155,23 +2169,18 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
         );
         if (nodeContext.floatSide === "footnote") {
           const footnote = float as Footnote;
-          if (footnote.footnotePolicy === Css.ident.line) {
+          if (footnote.footnotePolicy === Css.ident.line || isNaN(edge)) {
             let anchorContext: Vtree.NodeContext | null = nodeContextAfter;
             while (anchorContext) {
               const sourceNode = anchorContext.shadowContext
                 ? anchorContext.shadowContext.owner
                 : anchorContext.sourceNode;
               if (sourceNode === footnote.policyAnchorNode) {
-                const viewNode = anchorContext.viewNode as Element;
-                if (viewNode && viewNode.nodeType === 1) {
-                  const rect = LayoutHelper.getElementClientRectAdjusted(
-                    this.clientLayout,
-                    viewNode,
-                    this.vertical,
-                  );
-                  if (rect.right >= rect.left && rect.bottom >= rect.top) {
-                    edge = this.vertical ? rect.left : rect.bottom;
-                  }
+                const anchorEdge = getFootnoteEdgeFromViewNode(
+                  anchorContext.viewNode,
+                );
+                if (!isNaN(anchorEdge)) {
+                  edge = anchorEdge;
                 }
                 break;
               }
@@ -2180,20 +2189,11 @@ export class Column extends VtreeImpl.Container implements Layout.Column {
           }
         }
         // For footnotes, calculateEdge may return NaN because footnote-call
-        // has vertical-align: super. Compute edge from the element's
-        // bounding rect to enable footnote fragmentation.
+        // has vertical-align: super. After trying the rendered anchor context,
+        // fall back to the call element's bounding rect to enable
+        // footnote fragmentation.
         if (isNaN(edge) && nodeContext.floatSide === "footnote") {
-          const viewNode = nodeContextAfter.viewNode as Element;
-          if (viewNode && viewNode.nodeType === 1) {
-            const rect = LayoutHelper.getElementClientRectAdjusted(
-              this.clientLayout,
-              viewNode,
-              this.vertical,
-            );
-            if (rect.right >= rect.left && rect.bottom >= rect.top) {
-              edge = this.vertical ? rect.left : rect.bottom;
-            }
-          }
+          edge = getFootnoteEdgeFromViewNode(nodeContextAfter.viewNode);
         }
         if (this.isOverflown(edge)) {
           return Task.newResult(nodeContextAfter);
