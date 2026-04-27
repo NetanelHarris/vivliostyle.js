@@ -990,6 +990,10 @@ module.exports = [
         title: "Footnote fragmentation across pages (Issue #1875)",
       },
       {
+        file: "footnotes/footnote-fragmentation-inline-anchor.html",
+        title: "Footnote fragmentation from inline anchor",
+      },
+      {
         file: "footnotes/footnote-fragmentation-multicol.html",
         title: "Footnote fragmentation in multi-column (Issue #1879)",
       },
