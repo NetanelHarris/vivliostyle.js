@@ -853,6 +853,10 @@ module.exports = [
       },
       { file: "footnotes/footnote-policy.html", title: "footnote-policy" },
       {
+        file: "footnotes/footnote-policy-line-fragmentation.html",
+        title: "footnote-policy: line fragmentation (Issue #1899)",
+      },
+      {
         file: "footnotes/footnote-area-at-footnote.html",
         title: "Footnote area with @footnote",
       },
