@@ -1,7 +1,6 @@
 <template>
   <div class="preview">
     <div class="preview__toolbar">
-      <h3 class="preview__title">תצוגה מקדימה</h3>
       <div class="preview__actions">
         <Button
           label="המר"
@@ -20,6 +19,10 @@
           severity="secondary"
           :disabled="!store.hasDocument"
           @click="store.downloadZip()" />
+      </div>
+      <div class="preview__dir-toggle">
+        <ToggleSwitch v-model="isRtl" inputId="rtl-toggle" />
+        <label for="rtl-toggle">RTL</label>
       </div>
     </div>
 
@@ -41,9 +44,20 @@
 import { ref, watch, nextTick } from "vue";
 import { useConverterStore } from "../stores/converter.js";
 import Button from "primevue/button";
+import ToggleSwitch from "primevue/toggleswitch";
 
 const store = useConverterStore();
 const iframeRef = ref<HTMLIFrameElement | null>(null);
+const isRtl = ref(true);
+
+function applyDir(): void {
+  const doc =
+    iframeRef.value?.contentDocument ??
+    iframeRef.value?.contentWindow?.document;
+  if (doc?.documentElement) {
+    doc.documentElement.dir = isRtl.value ? "rtl" : "ltr";
+  }
+}
 
 watch(
   () => store.htmlOutput,
@@ -57,8 +71,11 @@ watch(
     doc.open();
     doc.write(html);
     doc.close();
+    applyDir();
   },
 );
+
+watch(isRtl, applyDir);
 </script>
 
 <style scoped>
@@ -67,19 +84,21 @@ watch(
   align-items: center;
   justify-content: space-between;
   margin-bottom: 1rem;
-  flex-wrap: wrap;
   gap: 0.75rem;
-}
-
-.preview__title {
-  margin: 0;
-  font-size: 1.1rem;
 }
 
 .preview__actions {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.preview__dir-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--p-surface-600);
 }
 
 .preview__empty {

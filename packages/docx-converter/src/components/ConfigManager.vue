@@ -1,22 +1,25 @@
 <template>
   <div class="config-manager">
     <Button
-      label="ייצא קונפיג"
+      v-tooltip.bottom="'ייצא קונפיג'"
       icon="pi pi-download"
       severity="secondary"
       size="small"
+      text
       @click="store.exportConfig()" />
     <Button
-      label="טען קונפיג"
+      v-tooltip.bottom="'טען קונפיג'"
       icon="pi pi-upload"
       severity="secondary"
       size="small"
+      text
       @click="triggerImport" />
     <Button
-      label="איפוס ברירות מחדל"
+      v-tooltip.bottom="'איפוס ברירות מחדל'"
       icon="pi pi-refresh"
       severity="secondary"
       size="small"
+      text
       @click="store.resetConfig()" />
     <input
       ref="importInput"
