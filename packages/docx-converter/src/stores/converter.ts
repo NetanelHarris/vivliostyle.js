@@ -7,6 +7,7 @@ import {
   generateHtmlWithEmbeddedImages,
   generateHtmlWithExternalImages,
 } from "../converter/html-generator.js";
+import { generateVfm } from "../converter/vfm-generator.js";
 import {
   buildZip,
   downloadBlob,
@@ -36,6 +37,7 @@ export const useConverterStore = defineStore("converter", () => {
   const parsedDoc = ref<ParsedDocument | null>(null);
   const styleConfig = ref<StyleConfig>(loadConfigFromStorage());
   const htmlOutput = ref<string>("");
+  const vfmOutput = ref<string>("");
   const isLoading = ref(false);
   const error = ref<string | null>(null);
   const includeColors = ref(false);
@@ -43,6 +45,7 @@ export const useConverterStore = defineStore("converter", () => {
 
   const hasDocument = computed(() => parsedDoc.value !== null);
   const hasOutput = computed(() => htmlOutput.value !== "");
+  const hasVfmOutput = computed(() => vfmOutput.value !== "");
   const styleNames = computed(() => parsedDoc.value?.styleNames ?? []);
 
   function ensureStylesForDoc(names: string[]): void {
@@ -61,6 +64,7 @@ export const useConverterStore = defineStore("converter", () => {
     file.value = f;
     parsedDoc.value = null;
     htmlOutput.value = "";
+    vfmOutput.value = "";
     error.value = null;
     isLoading.value = true;
     try {
@@ -85,6 +89,7 @@ export const useConverterStore = defineStore("converter", () => {
       styleConfig.value,
       opts,
     );
+    vfmOutput.value = generateVfm(parsedDoc.value, styleConfig.value);
   }
 
   function updateMapping(
@@ -101,6 +106,13 @@ export const useConverterStore = defineStore("converter", () => {
   function downloadHtml(): void {
     if (!htmlOutput.value) return;
     downloadText(htmlOutput.value, "output.html");
+  }
+
+  function downloadVfm(): void {
+    if (!parsedDoc.value) return;
+    const content =
+      vfmOutput.value || generateVfm(parsedDoc.value, styleConfig.value);
+    downloadText(content, "output.md", "text/markdown");
   }
 
   async function downloadZip(): Promise<void> {
@@ -142,17 +154,20 @@ export const useConverterStore = defineStore("converter", () => {
     parsedDoc,
     styleConfig,
     htmlOutput,
+    vfmOutput,
     isLoading,
     error,
     includeColors,
     includeFontSizes,
     hasDocument,
     hasOutput,
+    hasVfmOutput,
     styleNames,
     loadFile,
     convert,
     updateMapping,
     downloadHtml,
+    downloadVfm,
     downloadZip,
     exportConfig,
     importConfig,

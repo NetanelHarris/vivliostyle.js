@@ -14,6 +14,12 @@
           :disabled="!store.hasOutput"
           @click="store.downloadHtml()" />
         <Button
+          label="הורד VFM"
+          icon="pi pi-file-edit"
+          severity="secondary"
+          :disabled="!store.hasDocument"
+          @click="store.downloadVfm()" />
+        <Button
           label="הורד ZIP"
           icon="pi pi-download"
           severity="secondary"
@@ -26,17 +32,31 @@
       </div>
     </div>
 
-    <div v-if="!store.hasOutput" class="preview__empty">
+    <div v-if="!store.hasOutput && !store.hasVfmOutput" class="preview__empty">
       <i class="pi pi-eye-slash preview__empty-icon" />
       <p>לחץ "המר" כדי לראות את התוצאה</p>
     </div>
 
-    <iframe
-      v-else
-      ref="iframeRef"
-      class="preview__frame"
-      sandbox="allow-same-origin"
-      title="תצוגה מקדימה של HTML" />
+    <Tabs v-else value="html" class="preview__tabs">
+      <TabList>
+        <Tab value="html">HTML</Tab>
+        <Tab value="vfm">VFM</Tab>
+      </TabList>
+      <TabPanels>
+        <TabPanel value="html">
+          <iframe
+            ref="iframeRef"
+            class="preview__frame"
+            sandbox="allow-same-origin"
+            title="תצוגה מקדימה של HTML" />
+        </TabPanel>
+        <TabPanel value="vfm">
+          <pre
+            class="preview__vfm"
+            dir="ltr"><code>{{ store.vfmOutput }}</code></pre>
+        </TabPanel>
+      </TabPanels>
+    </Tabs>
   </div>
 </template>
 
@@ -45,6 +65,11 @@ import { ref, watch, nextTick } from "vue";
 import { useConverterStore } from "../stores/converter.js";
 import Button from "primevue/button";
 import ToggleSwitch from "primevue/toggleswitch";
+import Tabs from "primevue/tabs";
+import TabList from "primevue/tablist";
+import Tab from "primevue/tab";
+import TabPanels from "primevue/tabpanels";
+import TabPanel from "primevue/tabpanel";
 
 const store = useConverterStore();
 const iframeRef = ref<HTMLIFrameElement | null>(null);
@@ -119,9 +144,31 @@ watch(isRtl, applyDir);
 
 .preview__frame {
   width: 100%;
-  height: 600px;
+  height: 560px;
   border: 1px solid var(--p-surface-300);
   border-radius: 8px;
   background: white;
+}
+
+.preview__vfm {
+  width: 100%;
+  height: 560px;
+  overflow: auto;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--p-surface-300);
+  border-radius: 8px;
+  background: var(--p-surface-50);
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-sizing: border-box;
+  color: var(--p-surface-800);
+}
+
+.preview__tabs :deep(.p-tabpanels) {
+  padding: 0.75rem 0 0;
 }
 </style>

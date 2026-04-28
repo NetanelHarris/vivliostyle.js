@@ -18,6 +18,8 @@ export interface ParsedDocument {
   paragraphs: ParsedParagraph[];
   footnotes: ParsedFootnote[];
   images: ImageData[];
+  title?: string;
+  author?: string;
 }
 
 export interface ParsedParagraph {
@@ -35,6 +37,8 @@ export interface ParsedRun {
   color?: string;
   fontSize?: number;
   footnoteRef?: number;
+  href?: string;
+  imageRef?: string;
 }
 
 export interface ParsedFootnote {

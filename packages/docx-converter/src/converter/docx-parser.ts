@@ -25,14 +25,67 @@ function parseStyles(stylesXml: string): Map<string, string> {
   return map;
 }
 
+function parseRelationships(relsXml: string): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!relsXml) return map;
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(relsXml, "application/xml");
+  doc.querySelectorAll("Relationship").forEach((rel) => {
+    const id = rel.getAttribute("Id") ?? "";
+    const target = rel.getAttribute("Target") ?? "";
+    if (id && target) map.set(id, target);
+  });
+  return map;
+}
+
+function parseMetadata(coreXml: string): { title?: string; author?: string } {
+  if (!coreXml) return {};
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(coreXml, "application/xml");
+  const titleEl = doc.querySelector("title");
+  const authorEl = doc.querySelector("creator");
+  return {
+    title: titleEl?.textContent?.trim() || undefined,
+    author: authorEl?.textContent?.trim() || undefined,
+  };
+}
+
 function hasProp(rPr: Element | null | undefined, tagName: string): boolean {
   if (!rPr) return false;
   return (rPr.querySelector as (s: string) => Element | null)(tagName) !== null;
 }
 
-function extractRunsFromContainer(container: Element): ParsedRun[] {
+const R_NS =
+  "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+
+function extractRunsFromContainer(
+  container: Element,
+  rels: Map<string, string>,
+): ParsedRun[] {
   const runs: ParsedRun[] = [];
   container.querySelectorAll("r").forEach((r) => {
+    const blipEl = r.querySelector("blip");
+    if (blipEl) {
+      const rEmbed =
+        blipEl.getAttribute("r:embed") ??
+        blipEl.getAttributeNS(R_NS, "embed") ??
+        "";
+      if (rEmbed) {
+        const target = rels.get(rEmbed);
+        if (target) {
+          runs.push({ text: "", imageRef: target.split("/").pop() ?? target });
+        }
+      }
+      return;
+    }
+
+    const hyperlinkEl = r.closest("hyperlink");
+    const rId =
+      hyperlinkEl?.getAttribute("r:id") ??
+      hyperlinkEl?.getAttributeNS(R_NS, "id") ??
+      "";
+    const href = rId ? rels.get(rId) : undefined;
+
     const rPr = r.querySelector("rPr");
 
     // In OOXML, <w:b> applies to Latin characters and <w:bCs> to Complex Script
@@ -76,6 +129,7 @@ function extractRunsFromContainer(container: Element): ParsedRun[] {
           strikethrough,
           color: color && color !== "auto" ? color : undefined,
           fontSize,
+          href,
         });
       }
     });
@@ -88,10 +142,11 @@ function parseFootnotes(footnotesXml: string): Map<number, ParsedFootnote> {
   if (!footnotesXml) return map;
   const parser = new DOMParser();
   const doc = parser.parseFromString(footnotesXml, "application/xml");
+  const emptyRels = new Map<string, string>();
   doc.querySelectorAll("footnote").forEach((fn) => {
     const id = parseInt(getAttrVal(fn, "id"), 10);
     if (isNaN(id) || id <= 0) return;
-    map.set(id, { id, runs: extractRunsFromContainer(fn) });
+    map.set(id, { id, runs: extractRunsFromContainer(fn, emptyRels) });
   });
   return map;
 }
@@ -99,6 +154,7 @@ function parseFootnotes(footnotesXml: string): Map<number, ParsedFootnote> {
 function parseDocument(
   documentXml: string,
   styleMap: Map<string, string>,
+  rels: Map<string, string>,
 ): { paragraphs: ParsedParagraph[]; styleNames: Set<string> } {
   const parser = new DOMParser();
   const doc = parser.parseFromString(documentXml, "application/xml");
@@ -120,7 +176,7 @@ function parseDocument(
       listInfo = { level, ordered: false };
     }
 
-    const runs = extractRunsFromContainer(p);
+    const runs = extractRunsFromContainer(p, rels);
     if (runs.length > 0 || styleId !== "Normal") {
       paragraphs.push({ styleName, runs, listInfo });
     }
@@ -136,16 +192,22 @@ export async function parseDocx(file: File): Promise<ParsedDocument> {
   const stylesFile = zip.file("word/styles.xml");
   const documentFile = zip.file("word/document.xml");
   const footnotesFile = zip.file("word/footnotes.xml");
+  const relsFile = zip.file("word/_rels/document.xml.rels");
+  const coreFile = zip.file("docProps/core.xml");
 
   if (!documentFile) throw new Error("לא נמצא word/document.xml בקובץ");
 
   const stylesXml = stylesFile ? await stylesFile.async("string") : "";
   const documentXml = await documentFile.async("string");
   const footnotesXml = footnotesFile ? await footnotesFile.async("string") : "";
+  const relsXml = relsFile ? await relsFile.async("string") : "";
+  const coreXml = coreFile ? await coreFile.async("string") : "";
 
   const styleMap = parseStyles(stylesXml);
+  const rels = parseRelationships(relsXml);
+  const metadata = parseMetadata(coreXml);
   const footnoteMap = parseFootnotes(footnotesXml);
-  const { paragraphs, styleNames } = parseDocument(documentXml, styleMap);
+  const { paragraphs, styleNames } = parseDocument(documentXml, styleMap, rels);
 
   const images: ImageData[] = [];
   const mimeMap: Record<string, string> = {
@@ -173,5 +235,7 @@ export async function parseDocx(file: File): Promise<ParsedDocument> {
     paragraphs,
     footnotes: Array.from(footnoteMap.values()),
     images,
+    title: metadata.title,
+    author: metadata.author,
   };
 }
