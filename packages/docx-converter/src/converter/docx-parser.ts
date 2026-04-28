@@ -25,17 +25,25 @@ function parseStyles(stylesXml: string): Map<string, string> {
   return map;
 }
 
+function hasProp(rPr: Element | null | undefined, tagName: string): boolean {
+  if (!rPr) return false;
+  return (rPr.querySelector as (s: string) => Element | null)(tagName) !== null;
+}
+
 function extractRunsFromContainer(container: Element): ParsedRun[] {
   const runs: ParsedRun[] = [];
   container.querySelectorAll("r").forEach((r) => {
     const rPr = r.querySelector("rPr");
-    const bold = !!rPr?.querySelector("b");
-    const italic = !!rPr?.querySelector("i");
-    const underline = !!rPr?.querySelector("u");
-    // querySelector("strike") is valid OOXML — suppress deprecation via type cast
-    const strikethrough = !!(
-      rPr?.querySelector as (s: string) => Element | null
-    )("strike");
+
+    // In OOXML, <w:b> applies to Latin characters and <w:bCs> to Complex Script
+    // (Hebrew, Arabic, etc.). RTL runs use the CS properties for bold/italic.
+    const isRtl =
+      hasProp(rPr, "rtl") ||
+      rPr?.querySelector("rFonts")?.getAttribute("w:hint") === "cs";
+    const bold = isRtl ? hasProp(rPr, "bCs") : hasProp(rPr, "b");
+    const italic = isRtl ? hasProp(rPr, "iCs") : hasProp(rPr, "i");
+    const underline = hasProp(rPr, "u");
+    const strikethrough = hasProp(rPr, "strike");
     const colorEl = rPr?.querySelector("color");
     const color = colorEl ? getAttrVal(colorEl, "val") : undefined;
     const szEl = rPr?.querySelector("sz");
