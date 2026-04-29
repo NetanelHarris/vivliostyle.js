@@ -118,19 +118,26 @@ function extractRunsFromContainer(
       return;
     }
 
-    r.querySelectorAll("t").forEach((t) => {
-      const text = t.textContent ?? "";
-      if (text) {
-        runs.push({
-          text,
-          bold,
-          italic,
-          underline,
-          strikethrough,
-          color: color && color !== "auto" ? color : undefined,
-          fontSize,
-          href,
-        });
+    Array.from(r.children).forEach((child) => {
+      if (child.localName === "t") {
+        const text = child.textContent ?? "";
+        if (text) {
+          runs.push({
+            text,
+            bold,
+            italic,
+            underline,
+            strikethrough,
+            color: color && color !== "auto" ? color : undefined,
+            fontSize,
+            href,
+          });
+        }
+      } else if (child.localName === "br") {
+        const brType = getAttrVal(child as Element, "type");
+        if (!brType || brType === "textWrapping") {
+          runs.push({ text: "", lineBreak: true });
+        }
       }
     });
   });

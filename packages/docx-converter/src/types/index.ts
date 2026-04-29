@@ -39,6 +39,7 @@ export interface ParsedRun {
   footnoteRef?: number;
   href?: string;
   imageRef?: string;
+  lineBreak?: boolean;
 }
 
 export interface ParsedFootnote {

@@ -28,6 +28,8 @@ function renderRun(
   opts: GeneratorOptions,
   _footnotes: ParsedFootnote[],
 ): string {
+  if (run.lineBreak) return "<br>";
+
   if (run.footnoteRef !== undefined) {
     return `<sup><a href="#fn-${run.footnoteRef}" id="fnref-${run.footnoteRef}">${run.footnoteRef}</a></sup>`;
   }

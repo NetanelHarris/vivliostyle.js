@@ -35,6 +35,7 @@ function getEffectiveTag(
 }
 
 function renderRunVfm(run: ParsedRun): string {
+  if (run.lineBreak) return "<br>";
   if (run.footnoteRef !== undefined) return `[^${run.footnoteRef}]`;
   if (run.imageRef !== undefined) return `![](images/${run.imageRef})`;
 
