@@ -255,8 +255,25 @@ function applyHangingIndent(
     return;
   }
 
-  // Apply the hanging indent
-  applyHangingIndentStyle(blockElement, firstWordWidth);
+  const indentLines = lineCount === 3 ? 2 : 1;
+  applyHangingIndentStyle(blockElement, firstWordWidth, indentLines);
+
+  // For 2- or 3-line centered paragraphs: right-align the last line.
+  if (lineCount === 2 || lineCount === 3) {
+    const computedStyle =
+      blockElement.ownerDocument?.defaultView?.getComputedStyle(blockElement);
+    const isLastLineCentered =
+      computedStyle?.textAlignLast === "center" &&
+      computedStyle?.textAlign === "justify";
+    if (isLastLineCentered) {
+      blockElement.style.textAlignLast = "start";
+      if (VIVLIOSTYLE_DEBUG) {
+        Logging.logger.debug(
+          `[TorahWindow] Applied text-align-last: start for ${lineCount}-line centered paragraph`,
+        );
+      }
+    }
+  }
 }
 
 /**
@@ -330,6 +347,7 @@ function collectTextNodes(element: Node): Text[] {
 function applyHangingIndentStyle(
   blockElement: HTMLElement,
   indentWidth: number,
+  indentLines: number = 1,
 ): void {
   const doc = blockElement.ownerDocument;
   const computedStyle = doc.defaultView?.getComputedStyle(blockElement);
@@ -347,7 +365,7 @@ function applyHangingIndentStyle(
   floatIndent.style.cssFloat = "inline-start";
   floatIndent.style.clear = "inline-start";
   floatIndent.style.width = `${indentWidth}px`;
-  floatIndent.style.height = "1px";
+  floatIndent.style.height = indentLines > 1 ? lineHeight : "1px";
 
   const firstChild = blockElement.firstChild;
   blockElement.insertBefore(floatSpacer, firstChild);
