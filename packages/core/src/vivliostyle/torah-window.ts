@@ -256,7 +256,25 @@ function applyHangingIndent(
   }
 
   const indentLines = lineCount === 3 ? 2 : 1;
-  applyHangingIndentStyle(blockElement, firstWordWidth, indentLines);
+  const floatIndent = applyHangingIndentStyle(
+    blockElement,
+    firstWordWidth,
+    indentLines,
+  );
+
+  // Re-count after float insertion: the taller float can cause reflow that
+  // adds an extra line. If that happened, shrink back to a single-line indent.
+  if (indentLines > 1) {
+    const actualLineCount = countLines(blockElement, column);
+    if (actualLineCount > lineCount) {
+      floatIndent.style.height = "1px";
+      if (VIVLIOSTYLE_DEBUG) {
+        Logging.logger.debug(
+          `[TorahWindow] Reflow detected (${lineCount}→${actualLineCount} lines), shrinking indent to 1px`,
+        );
+      }
+    }
+  }
 
   // For 2- or 3-line centered paragraphs: right-align the last line.
   if (lineCount === 2 || lineCount === 3) {
@@ -348,7 +366,7 @@ function applyHangingIndentStyle(
   blockElement: HTMLElement,
   indentWidth: number,
   indentLines: number = 1,
-): void {
+): HTMLElement {
   const doc = blockElement.ownerDocument;
   const computedStyle = doc.defaultView?.getComputedStyle(blockElement);
   const lineHeight = computedStyle?.lineHeight || "1.2em";
@@ -376,6 +394,8 @@ function applyHangingIndentStyle(
       `[TorahWindow] Applied two-float technique with indent width ${indentWidth}px`,
     );
   }
+
+  return floatIndent;
 }
 
 /**
