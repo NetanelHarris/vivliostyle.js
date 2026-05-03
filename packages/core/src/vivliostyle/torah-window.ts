@@ -264,10 +264,14 @@ function applyHangingIndent(
 
   // Re-count after float insertion: the taller float can cause reflow that
   // adds an extra line. If that happened, shrink back to a single-line indent.
+  // Track the effective line count so that text-align-last is based on the
+  // actual rendered state after the float is applied.
+  let effectiveLineCount = lineCount;
   if (indentLines > 1) {
     const actualLineCount = countLines(blockElement, column);
     if (actualLineCount > lineCount) {
       floatIndent.style.height = "1px";
+      effectiveLineCount = actualLineCount;
       if (VIVLIOSTYLE_DEBUG) {
         Logging.logger.debug(
           `[TorahWindow] Reflow detected (${lineCount}→${actualLineCount} lines), shrinking indent to 1px`,
@@ -277,7 +281,9 @@ function applyHangingIndent(
   }
 
   // For 2- or 3-line centered paragraphs: right-align the last line.
-  if (lineCount === 2 || lineCount === 3) {
+  // Use effectiveLineCount so we don't mis-apply the rule when reflow
+  // pushed the paragraph beyond 3 lines.
+  if (effectiveLineCount === 2 || effectiveLineCount === 3) {
     const computedStyle =
       blockElement.ownerDocument?.defaultView?.getComputedStyle(blockElement);
     const isLastLineCentered =
@@ -287,7 +293,7 @@ function applyHangingIndent(
       blockElement.style.textAlignLast = "start";
       if (VIVLIOSTYLE_DEBUG) {
         Logging.logger.debug(
-          `[TorahWindow] Applied text-align-last: start for ${lineCount}-line centered paragraph`,
+          `[TorahWindow] Applied text-align-last: start for ${effectiveLineCount}-line centered paragraph`,
         );
       }
     }
