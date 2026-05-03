@@ -255,26 +255,42 @@ function applyHangingIndent(
     return;
   }
 
-  const indentLines = lineCount === 3 ? 2 : 1;
-  const floatIndent = applyHangingIndentStyle(
-    blockElement,
-    firstWordWidth,
-    indentLines,
-  );
+  // Step 1: always start with a single-line indent.
+  const floatIndent = applyHangingIndentStyle(blockElement, firstWordWidth, 1);
 
-  // Re-count after float insertion: the taller float can cause reflow that
-  // adds an extra line. If that happened, shrink back to a single-line indent.
-  // Track the effective line count so that text-align-last is based on the
-  // actual rendered state after the float is applied.
-  let effectiveLineCount = lineCount;
-  if (indentLines > 1) {
-    const actualLineCount = countLines(blockElement, column);
-    if (actualLineCount > lineCount) {
+  // Step 2: re-count after inserting the single-line indent.
+  let effectiveLineCount = countLines(blockElement, column);
+
+  if (VIVLIOSTYLE_DEBUG) {
+    Logging.logger.debug(
+      `[TorahWindow] Line count after single-line indent: ${effectiveLineCount}`,
+    );
+  }
+
+  // Step 3: if 3 lines, grow the indent to cover 2 lines.
+  if (effectiveLineCount === 3) {
+    const computedStyle =
+      blockElement.ownerDocument?.defaultView?.getComputedStyle(blockElement);
+    const lineHeight = computedStyle?.lineHeight || "1.2em";
+    floatIndent.style.height = lineHeight;
+
+    // Step 4: re-count again — the taller indent may have caused reflow to 4 lines.
+    const afterGrowCount = countLines(blockElement, column);
+
+    if (VIVLIOSTYLE_DEBUG) {
+      Logging.logger.debug(
+        `[TorahWindow] Line count after growing indent: ${afterGrowCount}`,
+      );
+    }
+
+    if (afterGrowCount > 3) {
+      // Reflow: shrink back to single-line indent.
       floatIndent.style.height = "1px";
-      effectiveLineCount = actualLineCount;
+      effectiveLineCount = afterGrowCount;
+
       if (VIVLIOSTYLE_DEBUG) {
         Logging.logger.debug(
-          `[TorahWindow] Reflow detected (${lineCount}→${actualLineCount} lines), shrinking indent to 1px`,
+          `[TorahWindow] Reflow detected (3→${afterGrowCount} lines), shrinking indent back to 1px`,
         );
       }
     }
