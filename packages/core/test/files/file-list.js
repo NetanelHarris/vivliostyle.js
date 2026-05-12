@@ -274,6 +274,10 @@ module.exports = [
         file: "first-word-test.html",
         title: "Torah Books - styling first word",
       },
+      {
+        file: "torah-window-column-break-test.html",
+        title: "Torah Window - Column break (no window in broken fragment)",
+      },
     ],
   },
   {
