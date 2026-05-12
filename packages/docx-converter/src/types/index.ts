@@ -3,6 +3,7 @@ export interface StyleMapping {
   class: string;
   enabled?: boolean;
   debug?: boolean;
+  hidden?: boolean;
 }
 
 export interface StyleConfig {
@@ -86,7 +87,7 @@ export interface MappingRule {
   name: string;
   enabled: boolean;
   condition: MappingCondition;
-  output: { tag: string; class: string; debug?: boolean };
+  output: { tag: string; class: string; debug?: boolean; hidden?: boolean };
 }
 
 export interface FullConfig {

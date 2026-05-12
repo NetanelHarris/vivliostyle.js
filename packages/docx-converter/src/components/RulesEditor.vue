@@ -284,49 +284,62 @@
 
       <div class="rule-card__row rule-card__row--output">
         <span class="rule-card__output-label">פלט:</span>
-        <label class="rule-card__field">
-          <span>תג:</span>
-          <Select
-            :modelValue="rule.output.tag"
-            :options="
-              rule.condition.scope === 'paragraph'
-                ? HTML_BLOCK_TAGS
-                : HTML_INLINE_TAGS
-            "
-            class="rule-card__select"
+        <label class="rule-card__field rule-card__field--hide">
+          <span>הסתר:</span>
+          <ToggleSwitch
+            :modelValue="rule.output.hidden ?? false"
             @update:modelValue="
-              (v) => store.updateRuleOutput(rule.id, { tag: v as string })
+              (v) => store.updateRuleOutput(rule.id, { hidden: v })
             " />
         </label>
-        <label class="rule-card__field">
-          <span>class:</span>
-          <InputText
-            :modelValue="rule.output.class"
-            placeholder="(ריק)"
-            class="rule-card__input"
-            @update:modelValue="
-              (v) => store.updateRuleOutput(rule.id, { class: v as string })
-            " />
-        </label>
-        <label class="rule-card__field rule-card__field--debug">
-          <span>Debug:</span>
-          <div class="rule-card__debug-row">
-            <ToggleSwitch
-              :modelValue="rule.output.debug ?? false"
+        <template v-if="!rule.output.hidden">
+          <label class="rule-card__field">
+            <span>תג:</span>
+            <Select
+              :modelValue="rule.output.tag"
+              :options="
+                rule.condition.scope === 'paragraph'
+                  ? HTML_BLOCK_TAGS
+                  : HTML_INLINE_TAGS
+              "
+              class="rule-card__select"
               @update:modelValue="
-                (v) => store.updateRuleOutput(rule.id, { debug: v })
+                (v) => store.updateRuleOutput(rule.id, { tag: v as string })
               " />
-            <span
-              v-if="rule.output.debug"
-              class="debug-swatch"
-              :style="{ background: debugColor(rule.id) }" />
-          </div>
-        </label>
-        <code class="rule-card__preview"
-          >&lt;{{ rule.output.tag
-          }}{{
-            rule.output.class ? ` class="${rule.output.class}"` : ""
-          }}&gt;...&lt;/{{ rule.output.tag }}&gt;</code
+          </label>
+          <label class="rule-card__field">
+            <span>class:</span>
+            <InputText
+              :modelValue="rule.output.class"
+              placeholder="(ריק)"
+              class="rule-card__input"
+              @update:modelValue="
+                (v) => store.updateRuleOutput(rule.id, { class: v as string })
+              " />
+          </label>
+          <label class="rule-card__field rule-card__field--debug">
+            <span>Debug:</span>
+            <div class="rule-card__debug-row">
+              <ToggleSwitch
+                :modelValue="rule.output.debug ?? false"
+                @update:modelValue="
+                  (v) => store.updateRuleOutput(rule.id, { debug: v })
+                " />
+              <span
+                v-if="rule.output.debug"
+                class="debug-swatch"
+                :style="{ background: debugColor(rule.id) }" />
+            </div>
+          </label>
+          <code class="rule-card__preview"
+            >&lt;{{ rule.output.tag
+            }}{{
+              rule.output.class ? ` class="${rule.output.class}"` : ""
+            }}&gt;...&lt;/{{ rule.output.tag }}&gt;</code
+          >
+        </template>
+        <code v-else class="rule-card__preview rule-card__preview--hidden"
+          >&lt;!-- מוסתר --&gt;</code
         >
       </div>
     </div>
@@ -566,10 +579,16 @@ const styleOptions = computed(() => {
   gap: 0.5rem;
 }
 
-.rule-card__field--debug {
+.rule-card__field--debug,
+.rule-card__field--hide {
   flex-direction: row;
   align-items: center;
   gap: 0.5rem;
+}
+
+.rule-card__preview--hidden {
+  color: var(--p-surface-500);
+  font-style: italic;
 }
 
 .rule-card__debug-row {

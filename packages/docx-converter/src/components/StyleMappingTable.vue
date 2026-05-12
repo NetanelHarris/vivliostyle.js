@@ -21,7 +21,10 @@
           <template #body="{ data }">
             <span
               class="style-name"
-              :class="{ 'style-name--disabled': !data.enabled }"
+              :class="{
+                'style-name--disabled': !data.enabled,
+                'style-name--hidden': data.hidden,
+              }"
               >{{ data.styleName }}</span
             >
           </template>
@@ -72,16 +75,27 @@
           </template>
         </Column>
 
+        <Column header="הסתר">
+          <template #body="{ data }">
+            <ToggleSwitch
+              :modelValue="data.hidden"
+              @update:modelValue="
+                (val) => store.updateMapping(data.styleName, { hidden: val })
+              " />
+          </template>
+        </Column>
+
         <Column header="Debug">
           <template #body="{ data }">
             <div class="debug-cell">
               <ToggleSwitch
                 :modelValue="data.debug"
+                :disabled="data.hidden"
                 @update:modelValue="
                   (val) => store.updateMapping(data.styleName, { debug: val })
                 " />
               <span
-                v-if="data.debug"
+                v-if="data.debug && !data.hidden"
                 class="debug-swatch"
                 :style="{ background: debugColor(data.styleName) }" />
             </div>
@@ -111,6 +125,7 @@ const rows = computed(() =>
     class: store.styleConfig[name]?.class ?? "",
     enabled: store.styleConfig[name]?.enabled !== false,
     debug: store.styleConfig[name]?.debug ?? false,
+    hidden: store.styleConfig[name]?.hidden ?? false,
   })),
 );
 
@@ -152,6 +167,11 @@ function debugColor(seed: string): string {
 .style-name--disabled {
   opacity: 0.4;
   text-decoration: line-through;
+}
+
+.style-name--hidden {
+  opacity: 0.45;
+  font-style: italic;
 }
 
 .tag-select {

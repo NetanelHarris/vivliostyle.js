@@ -52,6 +52,7 @@ function renderRun(
   const ruleMatch = matchRun(run, para, opts.rules);
 
   if (ruleMatch) {
+    if (ruleMatch.output.hidden) return "";
     const cls = ruleMatch.output.class
       ? ` class="${escapeHtml(ruleMatch.output.class)}"`
       : "";
@@ -85,10 +86,14 @@ function renderParagraph(
 ): string {
   const ruleMatch = matchParagraph(para, opts.rules);
 
+  if (ruleMatch?.output.hidden) return "";
+
   const customMapping =
     !ruleMatch && styleConfig[para.styleName]?.enabled !== false
       ? styleConfig[para.styleName]
       : undefined;
+
+  if (!ruleMatch && customMapping?.hidden) return "";
 
   const mapping = ruleMatch
     ? ruleMatch.output

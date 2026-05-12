@@ -24,14 +24,15 @@ function escapeYaml(text: string): string {
   return text.replace(/'/g, "''");
 }
 
+function getEffectiveMapping(para: ParsedParagraph, styleConfig: StyleConfig) {
+  return styleConfig[para.styleName] ?? DEFAULT_STYLE_MAPPINGS[para.styleName];
+}
+
 function getEffectiveTag(
   para: ParsedParagraph,
   styleConfig: StyleConfig,
 ): string {
-  return (
-    (styleConfig[para.styleName] ?? DEFAULT_STYLE_MAPPINGS[para.styleName])
-      ?.tag ?? "p"
-  );
+  return getEffectiveMapping(para, styleConfig)?.tag ?? "p";
 }
 
 function renderRunVfm(run: ParsedRun): string {
@@ -56,6 +57,7 @@ function renderParagraphVfm(
   para: ParsedParagraph,
   styleConfig: StyleConfig,
 ): string | null {
+  if (getEffectiveMapping(para, styleConfig)?.hidden) return null;
   const tag = getEffectiveTag(para, styleConfig);
 
   if (tag === "pre") {
@@ -86,7 +88,8 @@ function renderParagraphVfm(
 function renderListItemVfm(
   para: ParsedParagraph,
   styleConfig: StyleConfig,
-): string {
+): string | null {
+  if (getEffectiveMapping(para, styleConfig)?.hidden) return null;
   const indent = "  ".repeat(para.listInfo!.level);
   const marker = para.listInfo!.ordered ? "1." : "-";
   const content = para.runs.map((r) => renderRunVfm(r)).join("");
@@ -124,11 +127,14 @@ export function generateVfm(
     if (para.listInfo) {
       const listLines: string[] = [];
       while (i < doc.paragraphs.length && doc.paragraphs[i].listInfo) {
-        listLines.push(renderListItemVfm(doc.paragraphs[i], styleConfig));
+        const line = renderListItemVfm(doc.paragraphs[i], styleConfig);
+        if (line !== null) listLines.push(line);
         i++;
       }
-      parts.push(listLines.join("\n"));
-      parts.push("");
+      if (listLines.length > 0) {
+        parts.push(listLines.join("\n"));
+        parts.push("");
+      }
     } else {
       const rendered = renderParagraphVfm(para, styleConfig);
       if (rendered !== null) {

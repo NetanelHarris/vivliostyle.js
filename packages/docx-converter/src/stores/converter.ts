@@ -192,6 +192,7 @@ export const useConverterStore = defineStore("converter", () => {
       class?: string;
       enabled?: boolean;
       debug?: boolean;
+      hidden?: boolean;
     },
   ): void {
     styleConfig.value[styleName] = {
@@ -236,7 +237,12 @@ export const useConverterStore = defineStore("converter", () => {
 
   function updateRuleOutput(
     id: string,
-    patch: Partial<{ tag: string; class: string; debug: boolean }>,
+    patch: Partial<{
+      tag: string;
+      class: string;
+      debug: boolean;
+      hidden: boolean;
+    }>,
   ): void {
     const idx = rules.value.findIndex((r) => r.id === id);
     if (idx === -1) return;
