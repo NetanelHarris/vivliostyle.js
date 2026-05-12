@@ -2,355 +2,81 @@
   <div class="rules-editor">
     <p class="rules-editor__hint">
       הכלל הראשון שתואם לפיסקה או ל-run "ניצח" וקובע את התג ו-class. אם שום כלל
-      לא תואם — חוזרים לטבלת מיפוי הסגנונות.
+      לא תואם — חוזרים לברירות המחדל לפי שם הסגנון.
     </p>
 
     <div v-if="store.rules.length === 0" class="rules-editor__empty">
-      אין כללים מתקדמים. הוסף כלל כדי למפות לפי שילוב של תכונות (יישור, גודל,
-      בולד וכו').
+      אין כללים. הוסף כלל כדי למפות פיסקאות או runs לפי שילוב של תכונות.
     </div>
 
-    <div v-for="(rule, idx) in store.rules" :key="rule.id" class="rule-card">
-      <div class="rule-card__top">
-        <span class="rule-card__index">{{ idx + 1 }}</span>
-        <InputText
-          :modelValue="rule.name"
-          placeholder="שם הכלל"
-          class="rule-card__name"
-          @update:modelValue="(v) => store.updateRule(rule.id, { name: v })" />
+    <div
+      v-for="(rule, idx) in store.rules"
+      :key="rule.id"
+      class="rule-row"
+      :class="{ 'rule-row--disabled': !rule.enabled }">
+      <span class="rule-row__index">{{ idx + 1 }}</span>
+
+      <div class="rule-row__main">
+        <div class="rule-row__name">{{ rule.name || "(ללא שם)" }}</div>
+        <div class="rule-row__summary">{{ summarize(rule) }}</div>
+      </div>
+
+      <span
+        class="rule-row__count"
+        :class="{ 'rule-row__count--zero': matchCount(rule.id) === 0 }">
+        {{ matchCount(rule.id) }} מופעים
+      </span>
+
+      <div class="rule-row__toggle">
         <ToggleSwitch
           :modelValue="rule.enabled"
           @update:modelValue="
             (v) => store.updateRule(rule.id, { enabled: v })
           " />
-        <span class="rule-card__enabled-label">פעיל</span>
-        <div class="rule-card__order">
-          <Button
-            icon="pi pi-arrow-up"
-            severity="secondary"
-            size="small"
-            text
-            :disabled="idx === 0"
-            @click="store.moveRule(rule.id, -1)" />
-          <Button
-            icon="pi pi-arrow-down"
-            severity="secondary"
-            size="small"
-            text
-            :disabled="idx === store.rules.length - 1"
-            @click="store.moveRule(rule.id, 1)" />
-        </div>
+        <span>פעיל</span>
+      </div>
+
+      <div class="rule-row__toggle">
+        <ToggleSwitch
+          :modelValue="rule.output.debug ?? false"
+          @update:modelValue="
+            (v) => store.updateRuleOutput(rule.id, { debug: v })
+          " />
+        <span
+          v-if="rule.output.debug"
+          class="debug-swatch"
+          :style="{ background: debugColor(rule.id) }" />
+        <span>Debug</span>
+      </div>
+
+      <div class="rule-row__actions">
+        <Button
+          icon="pi pi-pencil"
+          severity="secondary"
+          size="small"
+          text
+          v-tooltip.bottom="'ערוך'"
+          @click="openEdit(rule.id)" />
+        <Button
+          icon="pi pi-arrow-up"
+          severity="secondary"
+          size="small"
+          text
+          :disabled="idx === 0"
+          @click="store.moveRule(rule.id, -1)" />
+        <Button
+          icon="pi pi-arrow-down"
+          severity="secondary"
+          size="small"
+          text
+          :disabled="idx === store.rules.length - 1"
+          @click="store.moveRule(rule.id, 1)" />
         <Button
           icon="pi pi-trash"
           severity="danger"
           size="small"
           text
           @click="store.removeRule(rule.id)" />
-      </div>
-
-      <div class="rule-card__row">
-        <label class="rule-card__field">
-          <span>טווח:</span>
-          <Select
-            :modelValue="rule.condition.scope"
-            :options="scopeOptions"
-            optionLabel="label"
-            optionValue="value"
-            @update:modelValue="
-              (v) =>
-                store.updateRuleCondition(rule.id, {
-                  scope: v as 'paragraph' | 'run',
-                })
-            " />
-        </label>
-      </div>
-
-      <div class="rule-card__row rule-card__row--conditions">
-        <label class="rule-card__field">
-          <span>שם סגנון:</span>
-          <Select
-            :modelValue="rule.condition.styleName ?? ''"
-            :options="styleOptions"
-            optionLabel="label"
-            optionValue="value"
-            class="rule-card__select"
-            @update:modelValue="
-              (v) =>
-                store.updateRuleCondition(rule.id, {
-                  styleName: v ? (v as string) : undefined,
-                })
-            " />
-        </label>
-
-        <label class="rule-card__field">
-          <span>יישור:</span>
-          <Select
-            :modelValue="rule.condition.alignment ?? ''"
-            :options="alignmentOptions"
-            optionLabel="label"
-            optionValue="value"
-            class="rule-card__select"
-            @update:modelValue="
-              (v) =>
-                store.updateRuleCondition(rule.id, {
-                  alignment: v ? (v as Alignment) : undefined,
-                })
-            " />
-        </label>
-
-        <label class="rule-card__field">
-          <span>גודל גופן מינ' (pt):</span>
-          <Select
-            :modelValue="rule.condition.fontSizeMin ?? ''"
-            :options="fontSizeOptions"
-            optionLabel="label"
-            optionValue="value"
-            class="rule-card__select"
-            @update:modelValue="
-              (v) =>
-                store.updateRuleCondition(rule.id, {
-                  fontSizeMin: v === '' ? undefined : (v as number),
-                })
-            " />
-        </label>
-
-        <label class="rule-card__field">
-          <span>גודל גופן מקס' (pt):</span>
-          <Select
-            :modelValue="rule.condition.fontSizeMax ?? ''"
-            :options="fontSizeOptions"
-            optionLabel="label"
-            optionValue="value"
-            class="rule-card__select"
-            @update:modelValue="
-              (v) =>
-                store.updateRuleCondition(rule.id, {
-                  fontSizeMax: v === '' ? undefined : (v as number),
-                })
-            " />
-        </label>
-
-        <label class="rule-card__field">
-          <span>בולד:</span>
-          <Select
-            :modelValue="rule.condition.bold ?? 'any'"
-            :options="triOptions"
-            optionLabel="label"
-            optionValue="value"
-            class="rule-card__select rule-card__select--tri"
-            @update:modelValue="
-              (v) =>
-                store.updateRuleCondition(rule.id, {
-                  bold: v === 'any' ? undefined : (v as TriState),
-                })
-            " />
-        </label>
-
-        <label class="rule-card__field">
-          <span>נטוי:</span>
-          <Select
-            :modelValue="rule.condition.italic ?? 'any'"
-            :options="triOptions"
-            optionLabel="label"
-            optionValue="value"
-            class="rule-card__select rule-card__select--tri"
-            @update:modelValue="
-              (v) =>
-                store.updateRuleCondition(rule.id, {
-                  italic: v === 'any' ? undefined : (v as TriState),
-                })
-            " />
-        </label>
-
-        <label class="rule-card__field">
-          <span>קו תחתון:</span>
-          <Select
-            :modelValue="rule.condition.underline ?? 'any'"
-            :options="triOptions"
-            optionLabel="label"
-            optionValue="value"
-            class="rule-card__select rule-card__select--tri"
-            @update:modelValue="
-              (v) =>
-                store.updateRuleCondition(rule.id, {
-                  underline: v === 'any' ? undefined : (v as TriState),
-                })
-            " />
-        </label>
-
-        <label class="rule-card__field">
-          <span>קו חוצה:</span>
-          <Select
-            :modelValue="rule.condition.strikethrough ?? 'any'"
-            :options="triOptions"
-            optionLabel="label"
-            optionValue="value"
-            class="rule-card__select rule-card__select--tri"
-            @update:modelValue="
-              (v) =>
-                store.updateRuleCondition(rule.id, {
-                  strikethrough: v === 'any' ? undefined : (v as TriState),
-                })
-            " />
-        </label>
-
-        <label class="rule-card__field">
-          <span>צבע:</span>
-          <Select
-            :modelValue="rule.condition.color ?? ''"
-            :options="colorOptions"
-            optionLabel="label"
-            optionValue="value"
-            class="rule-card__select"
-            @update:modelValue="
-              (v) =>
-                store.updateRuleCondition(rule.id, {
-                  color: v ? (v as string) : undefined,
-                })
-            ">
-            <template #option="slotProps">
-              <span class="color-option">
-                <span
-                  v-if="slotProps.option.value"
-                  class="color-swatch"
-                  :style="{ background: `#${slotProps.option.value}` }" />
-                <span>{{ slotProps.option.label }}</span>
-              </span>
-            </template>
-            <template #value="slotProps">
-              <span class="color-option">
-                <span
-                  v-if="slotProps.value"
-                  class="color-swatch"
-                  :style="{ background: `#${slotProps.value}` }" />
-                <span>{{ slotProps.value || "(כל צבע)" }}</span>
-              </span>
-            </template>
-          </Select>
-        </label>
-
-        <label class="rule-card__field">
-          <span>שם גופן:</span>
-          <Select
-            :modelValue="rule.condition.fontName ?? ''"
-            :options="fontNameOptions"
-            optionLabel="label"
-            optionValue="value"
-            class="rule-card__select"
-            @update:modelValue="
-              (v) =>
-                store.updateRuleCondition(rule.id, {
-                  fontName: v ? (v as string) : undefined,
-                })
-            " />
-        </label>
-
-        <label
-          v-if="rule.condition.scope === 'paragraph'"
-          class="rule-card__field">
-          <span>indent מינ' (pt):</span>
-          <Select
-            :modelValue="rule.condition.indentMin ?? ''"
-            :options="indentOptions"
-            optionLabel="label"
-            optionValue="value"
-            class="rule-card__select"
-            @update:modelValue="
-              (v) =>
-                store.updateRuleCondition(rule.id, {
-                  indentMin: v === '' ? undefined : (v as number),
-                })
-            " />
-        </label>
-
-        <label
-          v-if="rule.condition.scope === 'paragraph'"
-          class="rule-card__field">
-          <span>התאמת runs:</span>
-          <Select
-            :modelValue="rule.condition.runMatchMode ?? 'all'"
-            :options="runMatchModeOptions"
-            optionLabel="label"
-            optionValue="value"
-            class="rule-card__select"
-            @update:modelValue="
-              (v) =>
-                store.updateRuleCondition(rule.id, {
-                  runMatchMode: v as RunMatchMode,
-                })
-            " />
-        </label>
-      </div>
-
-      <div class="rule-card__row rule-card__row--output">
-        <span class="rule-card__output-label">פלט:</span>
-        <label class="rule-card__field rule-card__field--hide">
-          <span>הסתר:</span>
-          <ToggleSwitch
-            :modelValue="rule.output.hidden ?? false"
-            @update:modelValue="
-              (v) => store.updateRuleOutput(rule.id, { hidden: v })
-            " />
-        </label>
-        <template v-if="!rule.output.hidden">
-          <label class="rule-card__field">
-            <span>תג:</span>
-            <Select
-              :modelValue="rule.output.tag"
-              :options="
-                rule.condition.scope === 'paragraph'
-                  ? HTML_BLOCK_TAGS
-                  : HTML_INLINE_TAGS
-              "
-              class="rule-card__select"
-              @update:modelValue="
-                (v) => store.updateRuleOutput(rule.id, { tag: v as string })
-              " />
-          </label>
-          <label class="rule-card__field">
-            <span>class:</span>
-            <InputText
-              :modelValue="rule.output.class"
-              placeholder="(ריק)"
-              class="rule-card__input"
-              @update:modelValue="
-                (v) => store.updateRuleOutput(rule.id, { class: v as string })
-              " />
-          </label>
-          <label
-            v-if="rule.condition.scope === 'paragraph'"
-            class="rule-card__field">
-            <span>פצל לקובץ:</span>
-            <ToggleSwitch
-              :modelValue="rule.output.splitFile ?? false"
-              @update:modelValue="
-                (v) => store.updateRuleOutput(rule.id, { splitFile: v })
-              " />
-          </label>
-          <label class="rule-card__field rule-card__field--debug">
-            <span>Debug:</span>
-            <div class="rule-card__debug-row">
-              <ToggleSwitch
-                :modelValue="rule.output.debug ?? false"
-                @update:modelValue="
-                  (v) => store.updateRuleOutput(rule.id, { debug: v })
-                " />
-              <span
-                v-if="rule.output.debug"
-                class="debug-swatch"
-                :style="{ background: debugColor(rule.id) }" />
-            </div>
-          </label>
-          <code class="rule-card__preview"
-            >&lt;{{ rule.output.tag
-            }}{{
-              rule.output.class ? ` class="${rule.output.class}"` : ""
-            }}&gt;...&lt;/{{ rule.output.tag }}&gt;</code
-          >
-        </template>
-        <code v-else class="rule-card__preview rule-card__preview--hidden"
-          >&lt;!-- מוסתר --&gt;</code
-        >
       </div>
     </div>
 
@@ -359,28 +85,45 @@
         label="הוסף כלל פיסקה"
         icon="pi pi-plus"
         size="small"
-        @click="store.addRule('paragraph')" />
+        @click="addAndEdit('paragraph')" />
       <Button
         label="הוסף כלל run"
         icon="pi pi-plus"
         size="small"
         severity="secondary"
-        @click="store.addRule('run')" />
+        @click="addAndEdit('run')" />
     </div>
+
+    <RuleEditorDialog v-model:visible="dialogVisible" :rule-id="editingId" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { ref } from "vue";
 import { useConverterStore } from "../stores/converter.js";
-import type { Alignment, TriState, RunMatchMode } from "../types/index.js";
-import { HTML_BLOCK_TAGS, HTML_INLINE_TAGS } from "../types/index.js";
+import type { MappingRule } from "../types/index.js";
 import Button from "primevue/button";
-import Select from "primevue/select";
-import InputText from "primevue/inputtext";
 import ToggleSwitch from "primevue/toggleswitch";
+import RuleEditorDialog from "./RuleEditorDialog.vue";
 
 const store = useConverterStore();
+
+const dialogVisible = ref(false);
+const editingId = ref<string | null>(null);
+
+function openEdit(id: string): void {
+  editingId.value = id;
+  dialogVisible.value = true;
+}
+
+function addAndEdit(scope: "paragraph" | "run"): void {
+  const r = store.addRule(scope);
+  openEdit(r.id);
+}
+
+function matchCount(id: string): number {
+  return store.ruleMatchCounts[id] ?? 0;
+}
 
 function debugColor(seed: string): string {
   let h = 0;
@@ -389,11 +132,6 @@ function debugColor(seed: string): string {
   }
   return `hsl(${h % 360}, 80%, 42%)`;
 }
-
-const scopeOptions = [
-  { label: "פיסקה", value: "paragraph" },
-  { label: "Run (חלק טקסט)", value: "run" },
-];
 
 const ALIGNMENT_LABELS: Record<string, string> = {
   right: "ימין",
@@ -404,68 +142,50 @@ const ALIGNMENT_LABELS: Record<string, string> = {
   end: "end",
 };
 
-const alignmentOptions = computed(() => [
-  { label: "(כל יישור)", value: "" },
-  ...(store.observedAlignments as string[]).map((a) => ({
-    label: ALIGNMENT_LABELS[a] ?? a,
-    value: a,
-  })),
-]);
+const TRI_LABELS: Record<string, string> = {
+  required: "דרוש",
+  forbidden: "אסור",
+};
 
-const fontSizeOptions = computed(() => [
-  { label: "—", value: "" as string | number },
-  ...(store.observedFontSizes as number[]).map((s) => ({
-    label: `${s}pt`,
-    value: s as string | number,
-  })),
-]);
+function summarize(rule: MappingRule): string {
+  const parts: string[] = [];
+  parts.push(rule.condition.scope === "paragraph" ? "פיסקה" : "run");
+  const c = rule.condition;
+  if (c.styleName) parts.push(`סגנון: ${c.styleName}`);
+  if (c.alignment)
+    parts.push(`יישור: ${ALIGNMENT_LABELS[c.alignment] ?? c.alignment}`);
+  if (c.bold && c.bold !== "any") parts.push(`בולד ${TRI_LABELS[c.bold]}`);
+  if (c.italic && c.italic !== "any")
+    parts.push(`נטוי ${TRI_LABELS[c.italic]}`);
+  if (c.underline && c.underline !== "any")
+    parts.push(`קו תחתון ${TRI_LABELS[c.underline]}`);
+  if (c.strikethrough && c.strikethrough !== "any")
+    parts.push(`קו חוצה ${TRI_LABELS[c.strikethrough]}`);
+  if (c.fontSizeMin !== undefined && c.fontSizeMax !== undefined)
+    parts.push(`גודל ${c.fontSizeMin}–${c.fontSizeMax}pt`);
+  else if (c.fontSizeMin !== undefined) parts.push(`גודל ≥ ${c.fontSizeMin}pt`);
+  else if (c.fontSizeMax !== undefined) parts.push(`גודל ≤ ${c.fontSizeMax}pt`);
+  if (c.color) parts.push(`צבע #${c.color}`);
+  if (c.fontName) parts.push(`גופן: ${c.fontName}`);
+  if (c.indentMin !== undefined) parts.push(`indent ≥ ${c.indentMin}pt`);
 
-const colorOptions = computed(() => [
-  { label: "(כל צבע)", value: "" },
-  ...(store.observedColors as string[]).map((c) => ({
-    label: `#${c}`,
-    value: c,
-  })),
-]);
-
-const fontNameOptions = computed(() => [
-  { label: "(כל גופן)", value: "" },
-  ...(store.observedFontNames as string[]).map((f) => ({ label: f, value: f })),
-]);
-
-const indentOptions = computed(() => [
-  { label: "—", value: "" as string | number },
-  ...(store.observedIndents as number[]).map((i) => ({
-    label: `${i}pt`,
-    value: i as string | number,
-  })),
-]);
-
-const triOptions = [
-  { label: "לא חשוב", value: "any" },
-  { label: "דרוש", value: "required" },
-  { label: "אסור", value: "forbidden" },
-];
-
-const runMatchModeOptions = [
-  { label: "כל הטקסט", value: "all" },
-  { label: "חלק מהטקסט", value: "any" },
-];
-
-const styleOptions = computed(() => {
-  const names = store.styleNames as string[];
-  return [
-    { label: "(כל סגנון)", value: "" },
-    ...names.map((n) => ({ label: n, value: n })),
-  ];
-});
+  const o = rule.output;
+  let out: string;
+  if (o.hidden) out = "מוסתר";
+  else {
+    const cls = o.class ? `.${o.class}` : "";
+    out = `<${o.tag}${cls}>`;
+    if (o.splitFile) out += " · פיצול לקובץ";
+  }
+  return `${parts.join(" · ")} → ${out}`;
+}
 </script>
 
 <style scoped>
 .rules-editor {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.75rem;
 }
 
 .rules-editor__hint {
@@ -483,24 +203,21 @@ const styleOptions = computed(() => {
   border-radius: 6px;
 }
 
-.rule-card {
+.rule-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
   border: 1px solid var(--p-surface-300);
   border-radius: 6px;
-  padding: 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
   background: var(--p-surface-0);
 }
 
-.rule-card__top {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+.rule-row--disabled {
+  opacity: 0.55;
 }
 
-.rule-card__index {
+.rule-row__index {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -511,122 +228,69 @@ const styleOptions = computed(() => {
   color: white;
   font-size: 0.85rem;
   font-weight: 700;
+  flex-shrink: 0;
 }
 
-.rule-card__name {
+.rule-row__main {
   flex: 1;
-  min-width: 8rem;
-}
-
-.rule-card__enabled-label {
-  font-size: 0.85rem;
-  color: var(--p-surface-600);
-}
-
-.rule-card__order {
-  display: flex;
-  gap: 0.25rem;
-}
-
-.rule-card__row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  align-items: flex-end;
-}
-
-.rule-card__row--conditions {
-  background: var(--p-surface-50);
-  padding: 0.5rem;
-  border-radius: 4px;
-}
-
-.rule-card__row--output {
-  align-items: center;
-}
-
-.rule-card__field {
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.85rem;
-  color: var(--p-surface-700);
+  gap: 0.15rem;
 }
 
-.rule-card__select {
-  width: 10rem;
-}
-
-.rule-card__select--tri {
-  width: 7rem;
-}
-
-.rule-card__num {
-  width: 7rem;
-}
-
-.rule-card__input {
-  width: 10rem;
-}
-
-.rule-card__output-label {
+.rule-row__name {
   font-weight: 600;
+  font-size: 0.95rem;
 }
 
-.rule-card__preview {
+.rule-row__summary {
   font-size: 0.8rem;
   color: var(--p-surface-600);
-  background: var(--p-surface-100);
-  padding: 0.2rem 0.4rem;
-  border-radius: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-  direction: ltr;
-  unicode-bidi: embed;
+}
+
+.rule-row__count {
+  font-size: 0.8rem;
+  color: var(--p-surface-700);
+  background: var(--p-surface-100);
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.rule-row__count--zero {
+  color: var(--p-surface-500);
+}
+
+.rule-row__toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--p-surface-700);
+  flex-shrink: 0;
+}
+
+.rule-row__actions {
+  display: flex;
+  gap: 0.15rem;
+  flex-shrink: 0;
+}
+
+.debug-swatch {
+  display: inline-block;
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
 }
 
 .rules-editor__actions {
   display: flex;
   gap: 0.5rem;
-}
-
-.rule-card__field--debug,
-.rule-card__field--hide {
-  flex-direction: row;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.rule-card__preview--hidden {
-  color: var(--p-surface-500);
-  font-style: italic;
-}
-
-.rule-card__debug-row {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.debug-swatch {
-  display: inline-block;
-  width: 1rem;
-  height: 1rem;
-  border-radius: 3px;
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  flex-shrink: 0;
-}
-
-.color-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.color-swatch {
-  display: inline-block;
-  width: 1rem;
-  height: 1rem;
-  border-radius: 3px;
-  border: 1px solid var(--p-surface-300);
+  margin-top: 0.25rem;
 }
 </style>

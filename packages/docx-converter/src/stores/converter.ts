@@ -15,6 +15,7 @@ import {
   generateHtmlWithExternalImages,
 } from "../converter/html-generator.js";
 import { generateVfm } from "../converter/vfm-generator.js";
+import { matchParagraph, matchRun } from "../converter/rule-matcher.js";
 import {
   buildZip,
   buildZipMulti,
@@ -82,16 +83,12 @@ export const useConverterStore = defineStore("converter", () => {
   const rules = ref<MappingRule[]>(initial.rules);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
-  const includeColors = ref(false);
-  const includeFontSizes = ref(false);
 
   const hasDocument = computed(() => parsedDoc.value !== null);
 
   const htmlOutput = computed<string>(() => {
     if (!parsedDoc.value) return "";
     return generateHtmlWithEmbeddedImages(parsedDoc.value, styleConfig.value, {
-      includeColors: includeColors.value,
-      includeFontSizes: includeFontSizes.value,
       rules: rules.value,
     });
   });
@@ -104,9 +101,23 @@ export const useConverterStore = defineStore("converter", () => {
   const hasOutput = computed(() => htmlOutput.value !== "");
   const hasVfmOutput = computed(() => vfmOutput.value !== "");
   const styleNames = computed(() => parsedDoc.value?.styleNames ?? []);
-  const allMappingsEnabled = computed(() =>
-    styleNames.value.every((n) => styleConfig.value[n]?.enabled !== false),
-  );
+
+  const ruleMatchCounts = computed<Record<string, number>>(() => {
+    const counts: Record<string, number> = {};
+    for (const r of rules.value) counts[r.id] = 0;
+    const doc = parsedDoc.value;
+    if (!doc) return counts;
+    for (const para of doc.paragraphs) {
+      const m = matchParagraph(para, rules.value);
+      if (m) counts[m.id] = (counts[m.id] ?? 0) + 1;
+      for (const run of para.runs) {
+        if (!run.text || run.lineBreak) continue;
+        const rm = matchRun(run, para, rules.value);
+        if (rm) counts[rm.id] = (counts[rm.id] ?? 0) + 1;
+      }
+    }
+    return counts;
+  });
 
   const observedFontNames = computed<string[]>(() => {
     const set = new Set<string>();
@@ -178,30 +189,6 @@ export const useConverterStore = defineStore("converter", () => {
     } finally {
       isLoading.value = false;
     }
-  }
-
-  function setAllMappingsEnabled(v: boolean): void {
-    for (const name of styleNames.value) {
-      styleConfig.value[name] = { ...styleConfig.value[name], enabled: v };
-    }
-    persist();
-  }
-
-  function updateMapping(
-    styleName: string,
-    mapping: {
-      tag?: string;
-      class?: string;
-      enabled?: boolean;
-      debug?: boolean;
-      hidden?: boolean;
-    },
-  ): void {
-    styleConfig.value[styleName] = {
-      ...styleConfig.value[styleName],
-      ...mapping,
-    };
-    persist();
   }
 
   function addRule(scope: "paragraph" | "run" = "paragraph"): MappingRule {
@@ -299,8 +286,6 @@ export const useConverterStore = defineStore("converter", () => {
       return [{ filename: "index.html", html: htmlOutput.value }];
     }
     return generateHtmlFiles(parsedDoc.value, styleConfig.value, {
-      includeColors: includeColors.value,
-      includeFontSizes: includeFontSizes.value,
       rules: rules.value,
       embedImages: true,
     });
@@ -313,8 +298,6 @@ export const useConverterStore = defineStore("converter", () => {
   async function downloadZip(): Promise<void> {
     if (!parsedDoc.value) return;
     const opts = {
-      includeColors: includeColors.value,
-      includeFontSizes: includeFontSizes.value,
       rules: rules.value,
       embedImages: false,
     };
@@ -380,13 +363,11 @@ export const useConverterStore = defineStore("converter", () => {
     vfmOutput,
     isLoading,
     error,
-    includeColors,
-    includeFontSizes,
     hasDocument,
     hasOutput,
     hasVfmOutput,
     styleNames,
-    allMappingsEnabled,
+    ruleMatchCounts,
     observedFontNames,
     observedFontSizes,
     observedColors,
@@ -395,8 +376,6 @@ export const useConverterStore = defineStore("converter", () => {
     splitFileCount,
     previewFiles,
     loadFile,
-    setAllMappingsEnabled,
-    updateMapping,
     addRule,
     updateRule,
     updateRuleCondition,
