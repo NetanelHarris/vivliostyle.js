@@ -5,9 +5,21 @@ export async function buildZip(
   htmlWithExternalImages: string,
   images: ImageData[],
 ): Promise<Blob> {
+  return buildZipMulti(
+    [{ filename: "index.html", content: htmlWithExternalImages }],
+    images,
+  );
+}
+
+export async function buildZipMulti(
+  files: Array<{ filename: string; content: string }>,
+  images: ImageData[],
+): Promise<Blob> {
   const zip = new JSZip();
 
-  zip.file("index.html", htmlWithExternalImages);
+  for (const f of files) {
+    zip.file(f.filename, f.content);
+  }
 
   if (images.length > 0) {
     const imgFolder = zip.folder("images");

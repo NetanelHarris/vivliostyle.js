@@ -317,6 +317,16 @@
                 (v) => store.updateRuleOutput(rule.id, { class: v as string })
               " />
           </label>
+          <label
+            v-if="rule.condition.scope === 'paragraph'"
+            class="rule-card__field">
+            <span>פצל לקובץ:</span>
+            <ToggleSwitch
+              :modelValue="rule.output.splitFile ?? false"
+              @update:modelValue="
+                (v) => store.updateRuleOutput(rule.id, { splitFile: v })
+              " />
+          </label>
           <label class="rule-card__field rule-card__field--debug">
             <span>Debug:</span>
             <div class="rule-card__debug-row">

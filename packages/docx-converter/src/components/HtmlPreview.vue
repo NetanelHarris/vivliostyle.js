@@ -20,6 +20,9 @@
           severity="secondary"
           :disabled="!store.hasDocument"
           @click="store.downloadZip()" />
+        <span v-if="store.splitFileCount > 1" class="preview__split-hint">
+          יפוצל ל-{{ store.splitFileCount }} קבצים
+        </span>
       </div>
       <div class="preview__dir-toggle">
         <ToggleSwitch v-model="isRtl" inputId="rtl-toggle" />
@@ -39,6 +42,17 @@
       </TabList>
       <TabPanels>
         <TabPanel value="html">
+          <div
+            v-if="store.previewFiles.length > 1"
+            class="preview__file-picker">
+            <label>קובץ:</label>
+            <Select
+              v-model="selectedFilename"
+              :options="fileOptions"
+              optionLabel="label"
+              optionValue="value"
+              class="preview__file-select" />
+          </div>
           <iframe
             ref="iframeRef"
             class="preview__frame"
@@ -56,10 +70,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from "vue";
+import { ref, watch, nextTick, computed } from "vue";
 import { useConverterStore } from "../stores/converter.js";
 import Button from "primevue/button";
 import ToggleSwitch from "primevue/toggleswitch";
+import Select from "primevue/select";
 import Tabs from "primevue/tabs";
 import TabList from "primevue/tablist";
 import Tab from "primevue/tab";
@@ -69,6 +84,33 @@ import TabPanel from "primevue/tabpanel";
 const store = useConverterStore();
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 const isRtl = ref(true);
+const selectedFilename = ref<string>("");
+
+const fileOptions = computed(() =>
+  store.previewFiles.map((f) => ({ label: f.filename, value: f.filename })),
+);
+
+const selectedHtml = computed<string>(() => {
+  const files = store.previewFiles;
+  if (files.length === 0) return "";
+  const match = files.find((f) => f.filename === selectedFilename.value);
+  return (match ?? files[0]).html;
+});
+
+watch(
+  () => store.previewFiles.map((f) => f.filename).join("|"),
+  () => {
+    const files = store.previewFiles;
+    if (files.length === 0) {
+      selectedFilename.value = "";
+      return;
+    }
+    if (!files.some((f) => f.filename === selectedFilename.value)) {
+      selectedFilename.value = files[0].filename;
+    }
+  },
+  { immediate: true },
+);
 
 function applyDir(): void {
   const doc =
@@ -80,7 +122,7 @@ function applyDir(): void {
 }
 
 watch(
-  () => store.htmlOutput,
+  selectedHtml,
   async (html) => {
     if (!html) return;
     await nextTick();
@@ -93,6 +135,7 @@ watch(
     doc.close();
     applyDir();
   },
+  { immediate: true },
 );
 
 watch(isRtl, applyDir);
@@ -109,8 +152,14 @@ watch(isRtl, applyDir);
 
 .preview__actions {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.preview__split-hint {
+  font-size: 0.85rem;
+  color: var(--p-surface-600);
 }
 
 .preview__dir-toggle {
@@ -165,5 +214,17 @@ watch(isRtl, applyDir);
 
 .preview__tabs :deep(.p-tabpanels) {
   padding: 0.75rem 0 0;
+}
+
+.preview__file-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.preview__file-select {
+  min-width: 240px;
 }
 </style>

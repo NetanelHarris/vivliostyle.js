@@ -10,12 +10,14 @@ import type {
 import { DEFAULT_STYLE_MAPPINGS, STORAGE_KEY } from "../types/index.js";
 import { parseDocx } from "../converter/docx-parser.js";
 import {
+  generateHtmlFiles,
   generateHtmlWithEmbeddedImages,
   generateHtmlWithExternalImages,
 } from "../converter/html-generator.js";
 import { generateVfm } from "../converter/vfm-generator.js";
 import {
   buildZip,
+  buildZipMulti,
   downloadBlob,
   downloadText,
 } from "../converter/zip-builder.js";
@@ -242,6 +244,7 @@ export const useConverterStore = defineStore("converter", () => {
       class: string;
       debug: boolean;
       hidden: boolean;
+      splitFile: boolean;
     }>,
   ): void {
     const idx = rules.value.findIndex((r) => r.id === id);
@@ -280,13 +283,51 @@ export const useConverterStore = defineStore("converter", () => {
     downloadText(vfmOutput.value, "output.md", "text/markdown");
   }
 
+  const hasSplitRule = computed<boolean>(() =>
+    rules.value.some(
+      (r) =>
+        r.enabled &&
+        r.condition.scope === "paragraph" &&
+        r.output.splitFile === true &&
+        !r.output.hidden,
+    ),
+  );
+
+  const previewFiles = computed<{ filename: string; html: string }[]>(() => {
+    if (!parsedDoc.value) return [];
+    if (!hasSplitRule.value) {
+      return [{ filename: "index.html", html: htmlOutput.value }];
+    }
+    return generateHtmlFiles(parsedDoc.value, styleConfig.value, {
+      includeColors: includeColors.value,
+      includeFontSizes: includeFontSizes.value,
+      rules: rules.value,
+      embedImages: true,
+    });
+  });
+
+  const splitFileCount = computed<number>(() =>
+    hasSplitRule.value ? previewFiles.value.length : 0,
+  );
+
   async function downloadZip(): Promise<void> {
     if (!parsedDoc.value) return;
     const opts = {
       includeColors: includeColors.value,
       includeFontSizes: includeFontSizes.value,
       rules: rules.value,
+      embedImages: false,
     };
+    if (splitFileCount.value > 0) {
+      const files = generateHtmlFiles(
+        parsedDoc.value,
+        styleConfig.value,
+        opts,
+      ).map((f) => ({ filename: f.filename, content: f.html }));
+      const blob = await buildZipMulti(files, parsedDoc.value.images);
+      downloadBlob(blob, "output.zip");
+      return;
+    }
     const htmlExternal = generateHtmlWithExternalImages(
       parsedDoc.value,
       styleConfig.value,
@@ -351,6 +392,8 @@ export const useConverterStore = defineStore("converter", () => {
     observedColors,
     observedAlignments,
     observedIndents,
+    splitFileCount,
+    previewFiles,
     loadFile,
     setAllMappingsEnabled,
     updateMapping,

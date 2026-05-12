@@ -87,7 +87,13 @@ export interface MappingRule {
   name: string;
   enabled: boolean;
   condition: MappingCondition;
-  output: { tag: string; class: string; debug?: boolean; hidden?: boolean };
+  output: {
+    tag: string;
+    class: string;
+    debug?: boolean;
+    hidden?: boolean;
+    splitFile?: boolean;
+  };
 }
 
 export interface FullConfig {
