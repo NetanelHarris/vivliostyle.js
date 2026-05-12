@@ -33,7 +33,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { useConverterStore } from "../stores/converter.js";
-import type { StyleConfig } from "../types/index.js";
+import type { StyleConfig, FullConfig } from "../types/index.js";
 import Button from "primevue/button";
 
 const store = useConverterStore();
@@ -49,7 +49,9 @@ function onImport(e: Event): void {
   const reader = new FileReader();
   reader.onload = (ev) => {
     try {
-      const config = JSON.parse(ev.target?.result as string) as StyleConfig;
+      const config = JSON.parse(ev.target?.result as string) as
+        | StyleConfig
+        | FullConfig;
       store.importConfig(config);
     } catch {
       alert("קובץ JSON לא תקין");

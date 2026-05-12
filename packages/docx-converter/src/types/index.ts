@@ -1,6 +1,8 @@
 export interface StyleMapping {
   tag: string;
   class: string;
+  enabled?: boolean;
+  debug?: boolean;
 }
 
 export interface StyleConfig {
@@ -12,6 +14,14 @@ export interface ImageData {
   base64: string;
   mimeType: string;
 }
+
+export type Alignment =
+  | "left"
+  | "right"
+  | "center"
+  | "justify"
+  | "start"
+  | "end";
 
 export interface ParsedDocument {
   styleNames: string[];
@@ -26,6 +36,8 @@ export interface ParsedParagraph {
   styleName: string;
   runs: ParsedRun[];
   listInfo?: { level: number; ordered: boolean };
+  alignment?: Alignment;
+  indent?: number;
 }
 
 export interface ParsedRun {
@@ -36,6 +48,7 @@ export interface ParsedRun {
   strikethrough?: boolean;
   color?: string;
   fontSize?: number;
+  fontName?: string;
   footnoteRef?: number;
   href?: string;
   imageRef?: string;
@@ -45,6 +58,40 @@ export interface ParsedRun {
 export interface ParsedFootnote {
   id: number;
   runs: ParsedRun[];
+}
+
+export type TriState = "required" | "forbidden" | "any";
+
+export type RunMatchMode = "all" | "any";
+
+export interface MappingCondition {
+  scope: "paragraph" | "run";
+  styleName?: string;
+  alignment?: Alignment;
+  bold?: TriState;
+  italic?: TriState;
+  underline?: TriState;
+  strikethrough?: TriState;
+  fontSizeMin?: number;
+  fontSizeMax?: number;
+  color?: string;
+  fontName?: string;
+  indentMin?: number;
+  /** Only for paragraph scope: "all" = all runs must match (default), "any" = at least one run must match */
+  runMatchMode?: RunMatchMode;
+}
+
+export interface MappingRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  condition: MappingCondition;
+  output: { tag: string; class: string; debug?: boolean };
+}
+
+export interface FullConfig {
+  styleConfig: StyleConfig;
+  rules: MappingRule[];
 }
 
 export const DEFAULT_STYLE_MAPPINGS: StyleConfig = {
@@ -64,7 +111,7 @@ export const DEFAULT_STYLE_MAPPINGS: StyleConfig = {
   "List Paragraph": { tag: "p", class: "list-paragraph" },
 };
 
-export const HTML_TAGS = [
+export const HTML_BLOCK_TAGS = [
   "p",
   "h1",
   "h2",
@@ -79,5 +126,22 @@ export const HTML_TAGS = [
   "section",
   "article",
 ];
+
+export const HTML_INLINE_TAGS = [
+  "span",
+  "strong",
+  "em",
+  "b",
+  "i",
+  "u",
+  "s",
+  "mark",
+  "small",
+  "sub",
+  "sup",
+  "code",
+];
+
+export const HTML_TAGS = HTML_BLOCK_TAGS;
 
 export const STORAGE_KEY = "vivliostyle-docx-config";

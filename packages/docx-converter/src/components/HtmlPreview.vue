@@ -3,11 +3,6 @@
     <div class="preview__toolbar">
       <div class="preview__actions">
         <Button
-          label="המר"
-          icon="pi pi-bolt"
-          :disabled="!store.hasDocument"
-          @click="store.convert()" />
-        <Button
           label="הורד HTML"
           icon="pi pi-file"
           severity="secondary"
@@ -34,7 +29,7 @@
 
     <div v-if="!store.hasOutput && !store.hasVfmOutput" class="preview__empty">
       <i class="pi pi-eye-slash preview__empty-icon" />
-      <p>לחץ "המר" כדי לראות את התוצאה</p>
+      <p>העלה קובץ DOCX כדי לראות את התוצאה</p>
     </div>
 
     <Tabs v-else value="html" class="preview__tabs">

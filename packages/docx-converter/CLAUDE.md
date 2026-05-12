@@ -19,8 +19,10 @@ The app is a single-page Vue 3 + PrimeVue + Pinia tool: upload a DOCX → map it
 ### Conversion pipeline (`src/converter/`)
 
 1. **`docx-parser.ts`** — Reads the DOCX as a ZIP (via JSZip), parses `word/styles.xml` for style name resolution and `word/document.xml` for content. Returns a `ParsedDocument` with typed paragraphs, runs, footnotes, and image blobs.
-2. **`html-generator.ts`** — Takes a `ParsedDocument` + `StyleConfig` and produces an HTML string. Each run is wrapped in inline tags (`<strong>`, `<em>`, `<u>`, `<s>`); paragraphs are wrapped in the user-chosen tag with optional class.
-3. **`zip-builder.ts`** — Packages HTML + image files into a ZIP blob using JSZip.
+2. **`rule-matcher.ts`** — Evaluates `MappingRule[]` against a paragraph or run. First matching enabled rule wins; returns `null` if none match. Called by the HTML generator before falling back to `styleConfig`.
+3. **`html-generator.ts`** — Takes a `ParsedDocument` + `StyleConfig` + `MappingRule[]` and produces an HTML string. For each paragraph/run it tries rules first (`rule-matcher.ts`), then falls back to style-name mapping. Each run is wrapped in inline tags (`<strong>`, `<em>`, `<u>`, `<s>`); paragraphs are wrapped in the user-chosen tag with optional class.
+4. **`vfm-generator.ts`** — Alternative output path: produces Vivliostyle Flavored Markdown (VFM) instead of HTML. Uses the same `styleConfig` for tag resolution but ignores `rules`. Supports headings, blockquotes, code blocks, lists, footnotes, and inline formatting.
+5. **`zip-builder.ts`** — Packages HTML + image files into a ZIP blob using JSZip.
 
 ### OOXML bold/italic gotcha
 
@@ -28,13 +30,19 @@ Hebrew/RTL documents use `<w:bCs>` and `<w:iCs>` for bold/italic, **not** `<w:b>
 
 ### State (`src/stores/converter.ts`)
 
-Single Pinia store holds: uploaded file, parsed document, style config map, HTML output, and display options (include colors, include font sizes). Style config auto-saves to `localStorage` under the key `vivliostyle-docx-config`.
+Single Pinia store holds: uploaded file, parsed document, style config map, rules list, HTML output, VFM output, and display options (include colors, include font sizes). The full config (`styleConfig` + `rules`) auto-saves to `localStorage` under the key `vivliostyle-docx-config`. Legacy configs that contain only a `StyleConfig` (no `rules` key) are migrated transparently on load.
 
-### Style mapping
+### Style mapping vs. rules
 
-`StyleConfig` is a plain `{ [styleName: string]: { tag: string; class: string } }` object. Style names come directly from `<w:style><w:name>` in the DOCX's `styles.xml`, so they match what the author sees in Word (e.g. "Heading 1", "Body Text"). Unknown styles fall back to `<p class="{kebab-style-id}">`. Defaults are in `src/types/index.ts → DEFAULT_STYLE_MAPPINGS`.
+There are two layers of mapping, evaluated in order:
+
+1. **Rules** (`MappingRule[]`) — ordered list of conditions (scope, style name, alignment, bold/italic/underline/strikethrough tri-state, font size range, color, font name, indent). First enabled rule that matches wins and sets `{ tag, class }`. Rules can target either `"paragraph"` or `"run"` scope.
+2. **Style config** (`StyleConfig`) — fallback `{ [styleName]: { tag, class, enabled, debug } }` keyed by Word style name. Style names come directly from `<w:style><w:name>` in `styles.xml`. Unknown styles fall back to `<p class="{kebab-style-id}">`. Defaults are in `src/types/index.ts → DEFAULT_STYLE_MAPPINGS`.
+
+The persisted shape is `FullConfig { styleConfig, rules }` (defined in `src/types/index.ts`).
 
 ### Image handling
 
 - **HTML download**: images embedded as `data:image/…` Base64 URIs.
 - **ZIP download**: images written to an `images/` folder; `<img src="images/…">` in the HTML.
+- **VFM download**: images referenced as `![](images/…)` markdown syntax.

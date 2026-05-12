@@ -8,7 +8,9 @@
     </header>
 
     <main class="app__main">
-      <div class="app__two-col" :class="{ 'app__two-col--expanded': store.hasDocument }">
+      <div
+        class="app__two-col"
+        :class="{ 'app__two-col--expanded': store.hasDocument }">
         <!-- Left column: Step 1 + Step 2 -->
         <div class="app__col">
           <Panel
@@ -33,10 +35,29 @@
                 <span class="step-title"
                   ><span class="step-badge">2</span> מיפוי סגנונות</span
                 >
+                <div class="panel-header__all-toggle">
+                  <ToggleSwitch
+                    :modelValue="store.allMappingsEnabled"
+                    @update:modelValue="store.setAllMappingsEnabled" />
+                  <label class="panel-header__all-label">הכל</label>
+                </div>
                 <ConfigManager />
               </div>
             </template>
             <StyleMappingTable />
+          </Panel>
+
+          <Panel
+            v-if="store.hasDocument"
+            v-model:collapsed="rulesCollapsed"
+            toggleable
+            class="app__panel">
+            <template #header>
+              <span class="step-title"
+                ><span class="step-badge">2+</span> כללים מתקדמים</span
+              >
+            </template>
+            <RulesEditor />
           </Panel>
         </div>
 
@@ -66,15 +87,18 @@ import { ref } from "vue";
 import { useConverterStore } from "./stores/converter.js";
 import FileDropZone from "./components/FileDropZone.vue";
 import StyleMappingTable from "./components/StyleMappingTable.vue";
+import RulesEditor from "./components/RulesEditor.vue";
 import ConfigManager from "./components/ConfigManager.vue";
 import HtmlPreview from "./components/HtmlPreview.vue";
 import Panel from "primevue/panel";
 import Toast from "primevue/toast";
+import ToggleSwitch from "primevue/toggleswitch";
 
 const store = useConverterStore();
 const step1Collapsed = ref(false);
 const step2Collapsed = ref(false);
 const step3Collapsed = ref(false);
+const rulesCollapsed = ref(true);
 </script>
 
 <style>
@@ -163,6 +187,20 @@ body {
   gap: 0.5rem;
 }
 
+.panel-header__all-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-inline-start: auto;
+}
+
+.panel-header__all-label {
+  font-size: 0.85rem;
+  color: var(--p-surface-600);
+  font-weight: 500;
+  cursor: pointer;
+}
+
 .step-title {
   display: flex;
   align-items: center;
@@ -183,5 +221,4 @@ body {
   font-size: 0.85rem;
   font-weight: 700;
 }
-
 </style>

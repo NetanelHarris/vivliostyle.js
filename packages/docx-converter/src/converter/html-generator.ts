@@ -5,14 +5,25 @@ import type {
   ParsedFootnote,
   StyleConfig,
   ImageData,
+  MappingRule,
 } from "../types/index.js";
 import { DEFAULT_STYLE_MAPPINGS } from "../types/index.js";
+import { matchParagraph, matchRun } from "./rule-matcher.js";
 
 interface GeneratorOptions {
   includeColors: boolean;
   includeFontSizes: boolean;
   embedImages: boolean;
   images: ImageData[];
+  rules: MappingRule[];
+}
+
+function debugColor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) {
+    h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return `hsl(${h % 360}, 80%, 42%)`;
 }
 
 function escapeHtml(text: string): string {
@@ -25,6 +36,7 @@ function escapeHtml(text: string): string {
 
 function renderRun(
   run: ParsedRun,
+  para: ParsedParagraph,
   opts: GeneratorOptions,
   _footnotes: ParsedFootnote[],
 ): string {
@@ -36,6 +48,19 @@ function renderRun(
 
   let html = escapeHtml(run.text);
   if (!html) return "";
+
+  const ruleMatch = matchRun(run, para, opts.rules);
+
+  if (ruleMatch) {
+    const cls = ruleMatch.output.class
+      ? ` class="${escapeHtml(ruleMatch.output.class)}"`
+      : "";
+    const dbg = ruleMatch.output.debug
+      ? ` style="outline: 1.5px solid ${debugColor(ruleMatch.id)}"`
+      : "";
+    const tag = ruleMatch.output.tag || "span";
+    return `<${tag}${cls}${dbg}>${html}</${tag}>`;
+  }
 
   const styles: string[] = [];
   if (opts.includeColors && run.color) styles.push(`color: #${run.color}`);
@@ -58,20 +83,38 @@ function renderParagraph(
   opts: GeneratorOptions,
   footnotes: ParsedFootnote[],
 ): string {
-  const mapping = styleConfig[para.styleName] ??
-    DEFAULT_STYLE_MAPPINGS[para.styleName] ?? {
-      tag: "p",
-      class: para.styleName.toLowerCase().replace(/\s+/g, "-"),
-    };
+  const ruleMatch = matchParagraph(para, opts.rules);
+
+  const customMapping =
+    !ruleMatch && styleConfig[para.styleName]?.enabled !== false
+      ? styleConfig[para.styleName]
+      : undefined;
+
+  const mapping = ruleMatch
+    ? ruleMatch.output
+    : (customMapping ??
+      DEFAULT_STYLE_MAPPINGS[para.styleName] ?? {
+        tag: "p",
+        class: para.styleName.toLowerCase().replace(/\s+/g, "-"),
+      });
 
   const tag = mapping.tag || "p";
   const cls = mapping.class ? ` class="${escapeHtml(mapping.class)}"` : "";
 
-  const inner = para.runs.map((r) => renderRun(r, opts, footnotes)).join("");
+  let dbg = "";
+  if (ruleMatch?.output.debug) {
+    dbg = ` style="outline: 1.5px solid ${debugColor(ruleMatch.id)}"`;
+  } else if (!ruleMatch && mapping.debug) {
+    dbg = ` style="outline: 1.5px solid ${debugColor(para.styleName)}"`;
+  }
+
+  const inner = para.runs
+    .map((r) => renderRun(r, para, opts, footnotes))
+    .join("");
 
   if (!inner.trim() && tag === "p") return "";
 
-  return `  <${tag}${cls}>${inner}</${tag}>`;
+  return `  <${tag}${cls}${dbg}>${inner}</${tag}>`;
 }
 
 function renderFootnotes(
@@ -80,9 +123,12 @@ function renderFootnotes(
 ): string {
   if (footnotes.length === 0) return "";
 
+  const stubPara: ParsedParagraph = { styleName: "Footnote Text", runs: [] };
   const items = footnotes
     .map((fn) => {
-      const inner = fn.runs.map((r) => renderRun(r, opts, footnotes)).join("");
+      const inner = fn.runs
+        .map((r) => renderRun(r, stubPara, opts, footnotes))
+        .join("");
       return `    <li id="fn-${fn.id}">${inner} <a href="#fnref-${fn.id}">↩</a></li>`;
     })
     .join("\n");
@@ -100,6 +146,7 @@ export function generateHtml(
     includeFontSizes: options.includeFontSizes ?? false,
     embedImages: options.embedImages ?? true,
     images: options.images ?? doc.images,
+    rules: options.rules ?? [],
   };
 
   const bodyLines: string[] = [];

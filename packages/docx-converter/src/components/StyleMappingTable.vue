@@ -19,7 +19,21 @@
         stripedRows>
         <Column field="styleName" header="שם סגנון Word">
           <template #body="{ data }">
-            <span class="style-name">{{ data.styleName }}</span>
+            <span
+              class="style-name"
+              :class="{ 'style-name--disabled': !data.enabled }"
+              >{{ data.styleName }}</span
+            >
+          </template>
+        </Column>
+
+        <Column header="פעיל">
+          <template #body="{ data }">
+            <ToggleSwitch
+              :modelValue="data.enabled"
+              @update:modelValue="
+                (val) => store.updateMapping(data.styleName, { enabled: val })
+              " />
           </template>
         </Column>
 
@@ -57,6 +71,22 @@
             >
           </template>
         </Column>
+
+        <Column header="Debug">
+          <template #body="{ data }">
+            <div class="debug-cell">
+              <ToggleSwitch
+                :modelValue="data.debug"
+                @update:modelValue="
+                  (val) => store.updateMapping(data.styleName, { debug: val })
+                " />
+              <span
+                v-if="data.debug"
+                class="debug-swatch"
+                :style="{ background: debugColor(data.styleName) }" />
+            </div>
+          </template>
+        </Column>
       </DataTable>
     </div>
   </div>
@@ -79,8 +109,18 @@ const rows = computed(() =>
     styleName: name,
     tag: store.styleConfig[name]?.tag ?? "p",
     class: store.styleConfig[name]?.class ?? "",
+    enabled: store.styleConfig[name]?.enabled !== false,
+    debug: store.styleConfig[name]?.debug ?? false,
   })),
 );
+
+function debugColor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) {
+    h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return `hsl(${h % 360}, 80%, 42%)`;
+}
 </script>
 
 <style scoped>
@@ -109,12 +149,32 @@ const rows = computed(() =>
   font-weight: 500;
 }
 
+.style-name--disabled {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+
 .tag-select {
   width: 9rem;
 }
 
 .class-input {
   width: 12rem;
+}
+
+.debug-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.debug-swatch {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  flex-shrink: 0;
 }
 
 .tag-preview {

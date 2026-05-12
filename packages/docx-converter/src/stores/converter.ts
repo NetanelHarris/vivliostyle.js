@@ -1,6 +1,12 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
-import type { ParsedDocument, StyleConfig } from "../types/index.js";
+import type {
+  ParsedDocument,
+  StyleConfig,
+  FullConfig,
+  MappingRule,
+  MappingCondition,
+} from "../types/index.js";
 import { DEFAULT_STYLE_MAPPINGS, STORAGE_KEY } from "../types/index.js";
 import { parseDocx } from "../converter/docx-parser.js";
 import {
@@ -14,17 +20,43 @@ import {
   downloadText,
 } from "../converter/zip-builder.js";
 
-function loadConfigFromStorage(): StyleConfig {
+interface PersistedConfig {
+  styleConfig: StyleConfig;
+  rules: MappingRule[];
+}
+
+function isLegacyConfig(raw: unknown): raw is StyleConfig {
+  if (!raw || typeof raw !== "object") return false;
+  if ("styleConfig" in raw && "rules" in raw) return false;
+  for (const v of Object.values(raw as Record<string, unknown>)) {
+    if (v && typeof v === "object" && "tag" in (v as object)) return true;
+  }
+  return Object.keys(raw as object).length === 0;
+}
+
+function loadConfigFromStorage(): PersistedConfig {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as StyleConfig;
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown;
+      if (isLegacyConfig(parsed)) {
+        return { styleConfig: parsed as StyleConfig, rules: [] };
+      }
+      if (parsed && typeof parsed === "object" && "styleConfig" in parsed) {
+        const p = parsed as Partial<FullConfig>;
+        return {
+          styleConfig: p.styleConfig ?? { ...DEFAULT_STYLE_MAPPINGS },
+          rules: Array.isArray(p.rules) ? p.rules : [],
+        };
+      }
+    }
   } catch {
     // ignore
   }
-  return { ...DEFAULT_STYLE_MAPPINGS };
+  return { styleConfig: { ...DEFAULT_STYLE_MAPPINGS }, rules: [] };
 }
 
-function saveConfigToStorage(config: StyleConfig): void {
+function saveConfigToStorage(config: PersistedConfig): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
   } catch {
@@ -32,21 +64,91 @@ function saveConfigToStorage(config: StyleConfig): void {
   }
 }
 
+function generateId(): string {
+  return `r_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function emptyCondition(scope: "paragraph" | "run"): MappingCondition {
+  return { scope };
+}
+
 export const useConverterStore = defineStore("converter", () => {
+  const initial = loadConfigFromStorage();
   const file = ref<File | null>(null);
   const parsedDoc = ref<ParsedDocument | null>(null);
-  const styleConfig = ref<StyleConfig>(loadConfigFromStorage());
-  const htmlOutput = ref<string>("");
-  const vfmOutput = ref<string>("");
+  const styleConfig = ref<StyleConfig>(initial.styleConfig);
+  const rules = ref<MappingRule[]>(initial.rules);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
   const includeColors = ref(false);
   const includeFontSizes = ref(false);
 
   const hasDocument = computed(() => parsedDoc.value !== null);
+
+  const htmlOutput = computed<string>(() => {
+    if (!parsedDoc.value) return "";
+    return generateHtmlWithEmbeddedImages(parsedDoc.value, styleConfig.value, {
+      includeColors: includeColors.value,
+      includeFontSizes: includeFontSizes.value,
+      rules: rules.value,
+    });
+  });
+
+  const vfmOutput = computed<string>(() => {
+    if (!parsedDoc.value) return "";
+    return generateVfm(parsedDoc.value, styleConfig.value);
+  });
+
   const hasOutput = computed(() => htmlOutput.value !== "");
   const hasVfmOutput = computed(() => vfmOutput.value !== "");
   const styleNames = computed(() => parsedDoc.value?.styleNames ?? []);
+  const allMappingsEnabled = computed(() =>
+    styleNames.value.every((n) => styleConfig.value[n]?.enabled !== false),
+  );
+
+  const observedFontNames = computed<string[]>(() => {
+    const set = new Set<string>();
+    for (const p of parsedDoc.value?.paragraphs ?? []) {
+      for (const r of p.runs) if (r.fontName) set.add(r.fontName);
+    }
+    return Array.from(set).sort();
+  });
+
+  const observedFontSizes = computed<number[]>(() => {
+    const set = new Set<number>();
+    for (const p of parsedDoc.value?.paragraphs ?? []) {
+      for (const r of p.runs) if (r.fontSize) set.add(r.fontSize);
+    }
+    return Array.from(set).sort((a, b) => a - b);
+  });
+
+  const observedColors = computed<string[]>(() => {
+    const set = new Set<string>();
+    for (const p of parsedDoc.value?.paragraphs ?? []) {
+      for (const r of p.runs) if (r.color) set.add(r.color.toUpperCase());
+    }
+    return Array.from(set).sort();
+  });
+
+  const observedAlignments = computed<string[]>(() => {
+    const set = new Set<string>();
+    for (const p of parsedDoc.value?.paragraphs ?? []) {
+      if (p.alignment) set.add(p.alignment);
+    }
+    return Array.from(set).sort();
+  });
+
+  const observedIndents = computed<number[]>(() => {
+    const set = new Set<number>();
+    for (const p of parsedDoc.value?.paragraphs ?? []) {
+      if (p.indent !== undefined) set.add(p.indent);
+    }
+    return Array.from(set).sort((a, b) => a - b);
+  });
+
+  function persist(): void {
+    saveConfigToStorage({ styleConfig: styleConfig.value, rules: rules.value });
+  }
 
   function ensureStylesForDoc(names: string[]): void {
     for (const name of names) {
@@ -57,14 +159,12 @@ export const useConverterStore = defineStore("converter", () => {
         };
       }
     }
-    saveConfigToStorage(styleConfig.value);
+    persist();
   }
 
   async function loadFile(f: File): Promise<void> {
     file.value = f;
     parsedDoc.value = null;
-    htmlOutput.value = "";
-    vfmOutput.value = "";
     error.value = null;
     isLoading.value = true;
     try {
@@ -78,29 +178,90 @@ export const useConverterStore = defineStore("converter", () => {
     }
   }
 
-  function convert(): void {
-    if (!parsedDoc.value) return;
-    const opts = {
-      includeColors: includeColors.value,
-      includeFontSizes: includeFontSizes.value,
-    };
-    htmlOutput.value = generateHtmlWithEmbeddedImages(
-      parsedDoc.value,
-      styleConfig.value,
-      opts,
-    );
-    vfmOutput.value = generateVfm(parsedDoc.value, styleConfig.value);
+  function setAllMappingsEnabled(v: boolean): void {
+    for (const name of styleNames.value) {
+      styleConfig.value[name] = { ...styleConfig.value[name], enabled: v };
+    }
+    persist();
   }
 
   function updateMapping(
     styleName: string,
-    mapping: { tag?: string; class?: string },
+    mapping: {
+      tag?: string;
+      class?: string;
+      enabled?: boolean;
+      debug?: boolean;
+    },
   ): void {
     styleConfig.value[styleName] = {
       ...styleConfig.value[styleName],
       ...mapping,
     };
-    saveConfigToStorage(styleConfig.value);
+    persist();
+  }
+
+  function addRule(scope: "paragraph" | "run" = "paragraph"): MappingRule {
+    const rule: MappingRule = {
+      id: generateId(),
+      name: scope === "paragraph" ? "כלל פיסקה" : "כלל run",
+      enabled: true,
+      condition: emptyCondition(scope),
+      output: { tag: scope === "paragraph" ? "p" : "span", class: "" },
+    };
+    rules.value.push(rule);
+    persist();
+    return rule;
+  }
+
+  function updateRule(id: string, patch: Partial<MappingRule>): void {
+    const idx = rules.value.findIndex((r) => r.id === id);
+    if (idx === -1) return;
+    rules.value[idx] = { ...rules.value[idx], ...patch };
+    persist();
+  }
+
+  function updateRuleCondition(
+    id: string,
+    patch: Partial<MappingCondition>,
+  ): void {
+    const idx = rules.value.findIndex((r) => r.id === id);
+    if (idx === -1) return;
+    rules.value[idx] = {
+      ...rules.value[idx],
+      condition: { ...rules.value[idx].condition, ...patch },
+    };
+    persist();
+  }
+
+  function updateRuleOutput(
+    id: string,
+    patch: Partial<{ tag: string; class: string; debug: boolean }>,
+  ): void {
+    const idx = rules.value.findIndex((r) => r.id === id);
+    if (idx === -1) return;
+    rules.value[idx] = {
+      ...rules.value[idx],
+      output: { ...rules.value[idx].output, ...patch },
+    };
+    persist();
+  }
+
+  function removeRule(id: string): void {
+    rules.value = rules.value.filter((r) => r.id !== id);
+    persist();
+  }
+
+  function moveRule(id: string, direction: -1 | 1): void {
+    const idx = rules.value.findIndex((r) => r.id === id);
+    if (idx === -1) return;
+    const target = idx + direction;
+    if (target < 0 || target >= rules.value.length) return;
+    const copy = rules.value.slice();
+    const [item] = copy.splice(idx, 1);
+    copy.splice(target, 0, item);
+    rules.value = copy;
+    persist();
   }
 
   function downloadHtml(): void {
@@ -110,9 +271,7 @@ export const useConverterStore = defineStore("converter", () => {
 
   function downloadVfm(): void {
     if (!parsedDoc.value) return;
-    const content =
-      vfmOutput.value || generateVfm(parsedDoc.value, styleConfig.value);
-    downloadText(content, "output.md", "text/markdown");
+    downloadText(vfmOutput.value, "output.md", "text/markdown");
   }
 
   async function downloadZip(): Promise<void> {
@@ -120,6 +279,7 @@ export const useConverterStore = defineStore("converter", () => {
     const opts = {
       includeColors: includeColors.value,
       includeFontSizes: includeFontSizes.value,
+      rules: rules.value,
     };
     const htmlExternal = generateHtmlWithExternalImages(
       parsedDoc.value,
@@ -131,28 +291,44 @@ export const useConverterStore = defineStore("converter", () => {
   }
 
   function exportConfig(): void {
+    const payload: FullConfig = {
+      styleConfig: styleConfig.value,
+      rules: rules.value,
+    };
     downloadText(
-      JSON.stringify(styleConfig.value, null, 2),
+      JSON.stringify(payload, null, 2),
       "docx-style-config.json",
       "application/json",
     );
   }
 
-  function importConfig(config: StyleConfig): void {
-    styleConfig.value = { ...styleConfig.value, ...config };
-    saveConfigToStorage(styleConfig.value);
+  function importConfig(config: StyleConfig | FullConfig): void {
+    if (isLegacyConfig(config)) {
+      styleConfig.value = { ...styleConfig.value, ...(config as StyleConfig) };
+    } else {
+      const full = config as FullConfig;
+      if (full.styleConfig) {
+        styleConfig.value = { ...styleConfig.value, ...full.styleConfig };
+      }
+      if (Array.isArray(full.rules)) {
+        rules.value = full.rules;
+      }
+    }
+    persist();
   }
 
   function resetConfig(): void {
     styleConfig.value = { ...DEFAULT_STYLE_MAPPINGS };
+    rules.value = [];
     if (parsedDoc.value) ensureStylesForDoc(parsedDoc.value.styleNames);
-    else saveConfigToStorage(styleConfig.value);
+    else persist();
   }
 
   return {
     file,
     parsedDoc,
     styleConfig,
+    rules,
     htmlOutput,
     vfmOutput,
     isLoading,
@@ -163,9 +339,21 @@ export const useConverterStore = defineStore("converter", () => {
     hasOutput,
     hasVfmOutput,
     styleNames,
+    allMappingsEnabled,
+    observedFontNames,
+    observedFontSizes,
+    observedColors,
+    observedAlignments,
+    observedIndents,
     loadFile,
-    convert,
+    setAllMappingsEnabled,
     updateMapping,
+    addRule,
+    updateRule,
+    updateRuleCondition,
+    updateRuleOutput,
+    removeRule,
+    moveRule,
     downloadHtml,
     downloadVfm,
     downloadZip,
