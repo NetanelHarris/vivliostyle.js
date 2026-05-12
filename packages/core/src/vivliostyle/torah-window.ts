@@ -255,8 +255,65 @@ function applyHangingIndent(
     return;
   }
 
-  // Apply the hanging indent
-  applyHangingIndentStyle(blockElement, firstWordWidth);
+  // Step 1: always start with a single-line indent.
+  const floatIndent = applyHangingIndentStyle(blockElement, firstWordWidth, 1);
+
+  // Step 2: re-count after inserting the single-line indent.
+  let effectiveLineCount = countLines(blockElement, column);
+
+  if (VIVLIOSTYLE_DEBUG) {
+    Logging.logger.debug(
+      `[TorahWindow] Line count after single-line indent: ${effectiveLineCount}`,
+    );
+  }
+
+  // Step 3: if 3 lines, grow the indent to cover 2 lines.
+  if (effectiveLineCount === 3) {
+    const computedStyle =
+      blockElement.ownerDocument?.defaultView?.getComputedStyle(blockElement);
+    const lineHeight = computedStyle?.lineHeight || "1.2em";
+    floatIndent.style.height = lineHeight;
+
+    // Step 4: re-count again — the taller indent may have caused reflow to 4 lines.
+    const afterGrowCount = countLines(blockElement, column);
+
+    if (VIVLIOSTYLE_DEBUG) {
+      Logging.logger.debug(
+        `[TorahWindow] Line count after growing indent: ${afterGrowCount}`,
+      );
+    }
+
+    if (afterGrowCount > 3) {
+      // Reflow: shrink back to single-line indent.
+      floatIndent.style.height = "1px";
+      effectiveLineCount = afterGrowCount;
+
+      if (VIVLIOSTYLE_DEBUG) {
+        Logging.logger.debug(
+          `[TorahWindow] Reflow detected (3→${afterGrowCount} lines), shrinking indent back to 1px`,
+        );
+      }
+    }
+  }
+
+  // For 2- or 3-line centered paragraphs: right-align the last line.
+  // Use effectiveLineCount so we don't mis-apply the rule when reflow
+  // pushed the paragraph beyond 3 lines.
+  if (effectiveLineCount === 2 || effectiveLineCount === 3) {
+    const computedStyle =
+      blockElement.ownerDocument?.defaultView?.getComputedStyle(blockElement);
+    const isLastLineCentered =
+      computedStyle?.textAlignLast === "center" &&
+      computedStyle?.textAlign === "justify";
+    if (isLastLineCentered) {
+      blockElement.style.textAlignLast = "start";
+      if (VIVLIOSTYLE_DEBUG) {
+        Logging.logger.debug(
+          `[TorahWindow] Applied text-align-last: start for ${effectiveLineCount}-line centered paragraph`,
+        );
+      }
+    }
+  }
 }
 
 /**
@@ -330,7 +387,8 @@ function collectTextNodes(element: Node): Text[] {
 function applyHangingIndentStyle(
   blockElement: HTMLElement,
   indentWidth: number,
-): void {
+  indentLines: number = 1,
+): HTMLElement {
   const doc = blockElement.ownerDocument;
   const computedStyle = doc.defaultView?.getComputedStyle(blockElement);
   const lineHeight = computedStyle?.lineHeight || "1.2em";
@@ -347,7 +405,7 @@ function applyHangingIndentStyle(
   floatIndent.style.cssFloat = "inline-start";
   floatIndent.style.clear = "inline-start";
   floatIndent.style.width = `${indentWidth}px`;
-  floatIndent.style.height = "1px";
+  floatIndent.style.height = indentLines > 1 ? lineHeight : "1px";
 
   const firstChild = blockElement.firstChild;
   blockElement.insertBefore(floatSpacer, firstChild);
@@ -358,6 +416,8 @@ function applyHangingIndentStyle(
       `[TorahWindow] Applied two-float technique with indent width ${indentWidth}px`,
     );
   }
+
+  return floatIndent;
 }
 
 /**
