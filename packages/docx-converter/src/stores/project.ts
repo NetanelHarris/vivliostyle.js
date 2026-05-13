@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { useEditorStore } from "./editor";
+import { useConfigStore } from "./config";
 
 const RECENT_KEY = "vivliostyle-recent-projects";
 const MAX_RECENT = 8;
@@ -102,6 +103,25 @@ export const useProjectStore = defineStore("project", () => {
     tree.value = null;
   }
 
+  async function createProject(parentDir: string, name: string): Promise<void> {
+    if (!window.electron) {
+      error.value = "Electron API not available";
+      return;
+    }
+    const projectPath = `${parentDir.replace(/[\\/]$/, "")}/${name}`;
+    isLoading.value = true;
+    error.value = null;
+    try {
+      await window.electron.fsMkdir(projectPath);
+      await useConfigStore().createDefault(projectPath);
+      await openProject(projectPath);
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e);
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
   function startWatching(): void {
     if (!window.electron) return;
     window.electron.onDirChanged(() => {
@@ -122,5 +142,6 @@ export const useProjectStore = defineStore("project", () => {
     closeProject,
     refreshTree,
     startWatching,
+    createProject,
   };
 });
