@@ -1,31 +1,42 @@
 <template>
   <div class="preview-panel">
     <div class="preview-panel__toolbar">
-      <Button
-        v-if="!preview.isRunning"
-        :loading="preview.isStarting"
-        :disabled="!project.isOpen"
-        icon="pi pi-play"
-        label="הפעל תצוגה"
-        size="small"
-        @click="onStart" />
-      <Button
-        v-else
-        icon="pi pi-stop"
-        label="עצור"
-        severity="secondary"
-        size="small"
-        @click="preview.stop()" />
-      <Button
-        v-if="preview.isRunning"
-        icon="pi pi-refresh"
-        severity="secondary"
-        size="small"
-        text
-        @click="preview.reload()" />
+      <template v-if="!isDetached">
+        <Button
+          v-if="!preview.isRunning"
+          :loading="preview.isStarting"
+          :disabled="!project.isOpen"
+          icon="pi pi-play"
+          label="הפעל תצוגה"
+          size="small"
+          @click="onStart" />
+        <Button
+          v-else
+          icon="pi pi-stop"
+          label="עצור"
+          severity="secondary"
+          size="small"
+          @click="preview.stop()" />
+        <Button
+          v-if="preview.isRunning"
+          icon="pi pi-refresh"
+          severity="secondary"
+          size="small"
+          text
+          @click="preview.reload()" />
+      </template>
       <span v-if="preview.isRunning" class="preview-panel__status">
         port {{ preview.port }}
       </span>
+      <Button
+        v-if="isElectron && !isDetached"
+        icon="pi pi-external-link"
+        severity="secondary"
+        size="small"
+        text
+        class="preview-panel__detach"
+        v-tooltip.bottom="'פתח בחלון נפרד'"
+        @click="emit('detach')" />
     </div>
 
     <div class="preview-panel__body">
@@ -37,7 +48,8 @@
       <div v-else class="preview-panel__placeholder">
         <i class="pi pi-eye" />
         <h2>תצוגה מקדימה</h2>
-        <p v-if="!project.isOpen">פתח פרויקט כדי להפעיל תצוגה</p>
+        <p v-if="isDetached">ממתין לתצוגה מהחלון הראשי...</p>
+        <p v-else-if="!project.isOpen">פתח פרויקט כדי להפעיל תצוגה</p>
         <p v-else>לחץ "הפעל תצוגה" כדי להריץ vivliostyle preview</p>
         <Message
           v-if="preview.error"
@@ -47,7 +59,7 @@
           <pre class="preview-panel__error-text">{{ preview.error }}</pre>
         </Message>
         <Button
-          v-if="preview.logs.length"
+          v-if="!isDetached && preview.logs.length"
           :label="
             showLogs ? 'הסתר לוגים' : `הצג לוגים (${preview.logs.length})`
           "
@@ -56,7 +68,7 @@
           size="small"
           class="preview-panel__logs-toggle"
           @click="showLogs = !showLogs" />
-        <div v-if="showLogs && preview.logs.length" class="preview-panel__logs">
+        <div v-if="!isDetached && showLogs && preview.logs.length" class="preview-panel__logs">
           <div
             v-for="(log, i) in preview.logs"
             :key="i"
@@ -76,10 +88,14 @@ import Button from "primevue/button";
 import Message from "primevue/message";
 import { useProjectStore } from "../../stores/project";
 import { usePreviewStore } from "../../stores/preview";
+import { isDetachedWindow } from "../../utils/window-mode";
 
+const emit = defineEmits<{ detach: [] }>();
+const isElectron = !!window.electron;
 const project = useProjectStore();
 const preview = usePreviewStore();
 const showLogs = ref(false);
+const isDetached = isDetachedWindow();
 
 watch(
   () => preview.error,
@@ -88,13 +104,28 @@ watch(
   },
 );
 
-onMounted(() => {
+onMounted(async () => {
   preview.startListening();
+
+  if (isDetached && window.electron) {
+    const status = await window.electron.vivPreviewStatus();
+    if (status) {
+      preview.setFromStatus(status.port, status.url);
+    }
+    window.electron.onPreviewUrlUpdated(({ url }) => {
+      preview.setFromStatus(null, url);
+    });
+  }
 });
 
 onBeforeUnmount(() => {
   preview.stopListening();
-  void preview.stop();
+  if (!isDetached) {
+    void preview.stop();
+  }
+  if (isDetached) {
+    window.electron?.removePanelListeners();
+  }
 });
 
 async function onStart(): Promise<void> {
@@ -126,6 +157,10 @@ async function onStart(): Promise<void> {
 .preview-panel__status {
   font-size: 0.8rem;
   color: var(--p-surface-500);
+  margin-inline-start: auto;
+}
+
+.preview-panel__detach {
   margin-inline-start: auto;
 }
 

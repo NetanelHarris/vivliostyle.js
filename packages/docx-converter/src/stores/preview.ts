@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
+import { isDetachedWindow } from "../utils/window-mode";
 
 export interface LogEntry {
   stream: "stdout" | "stderr";
@@ -64,6 +65,12 @@ export const usePreviewStore = defineStore("preview", () => {
     iframeKey.value++;
   }
 
+  function setFromStatus(newPort: number | null, newUrl: string): void {
+    port.value = newPort;
+    url.value = newUrl;
+    iframeKey.value++;
+  }
+
   function startListening(): void {
     if (!window.electron) return;
     window.electron.onVivLog(({ stream, text }) => {
@@ -74,6 +81,13 @@ export const usePreviewStore = defineStore("preview", () => {
       port.value = null;
       url.value = null;
     });
+    if (!isDetachedWindow()) {
+      watch(url, (newUrl) => {
+        if (newUrl) {
+          void window.electron?.notifyPreviewUrl(newUrl);
+        }
+      });
+    }
   }
 
   function stopListening(): void {
@@ -92,6 +106,7 @@ export const usePreviewStore = defineStore("preview", () => {
     stop,
     reload,
     clearLogs,
+    setFromStatus,
     startListening,
     stopListening,
   };

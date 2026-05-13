@@ -80,6 +80,16 @@ export interface ElectronAPI {
   // vivliostyle.config.js codec (Babel runs in main)
   configParse: (source: string) => Promise<unknown>;
   configSerialize: (source: string, data: unknown) => Promise<string>;
+
+  // detachable panels
+  openPanel: (
+    panel: "editor" | "preview" | "sidebar",
+    params?: { project?: string },
+  ) => Promise<void>;
+  notifyPreviewUrl: (url: string) => Promise<void>;
+  onPanelClosed: (cb: (data: { panel: string }) => void) => void;
+  onPreviewUrlUpdated: (cb: (data: { url: string }) => void) => void;
+  removePanelListeners: () => void;
 }
 
 const api: ElectronAPI = {
@@ -141,6 +151,21 @@ const api: ElectronAPI = {
   configParse: (source) => ipcRenderer.invoke("config:parse", source),
   configSerialize: (source, data) =>
     ipcRenderer.invoke("config:serialize", source, data),
+
+  openPanel: (panel, params) =>
+    ipcRenderer.invoke("window:openPanel", panel, params ?? {}),
+  notifyPreviewUrl: (url) =>
+    ipcRenderer.invoke("window:notifyPreviewUrl", url),
+  onPanelClosed: (cb) => {
+    ipcRenderer.on("window:panelClosed", (_, data) => cb(data));
+  },
+  onPreviewUrlUpdated: (cb) => {
+    ipcRenderer.on("window:previewUrlUpdated", (_, data) => cb(data));
+  },
+  removePanelListeners: () => {
+    ipcRenderer.removeAllListeners("window:panelClosed");
+    ipcRenderer.removeAllListeners("window:previewUrlUpdated");
+  },
 };
 
 contextBridge.exposeInMainWorld("electron", api);

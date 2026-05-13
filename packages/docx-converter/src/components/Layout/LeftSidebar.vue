@@ -20,6 +20,14 @@
           size="small"
           v-tooltip.bottom="'רענן עץ קבצים'"
           @click="project.refreshTree()" />
+        <Button
+          v-if="isElectron && !isDetached"
+          icon="pi pi-external-link"
+          severity="secondary"
+          text
+          size="small"
+          v-tooltip.bottom="'פתח בחלון נפרד'"
+          @click="emit('detach')" />
       </div>
     </div>
 
@@ -70,9 +78,13 @@ import ProjectSection from "../Project/ProjectSection.vue";
 import SettingsSection from "../Settings/SettingsSection.vue";
 import ActionsSection from "../Actions/ActionsSection.vue";
 import DocxImportSection from "../DocxImport/DocxImportSection.vue";
+import { isDetachedWindow } from "../../utils/window-mode";
 
+const emit = defineEmits<{ detach: [] }>();
+const isElectron = !!window.electron;
 const project = useProjectStore();
 const activeSections = ref<string[]>(["project"]);
+const isDetached = isDetachedWindow();
 
 async function onOpenProject(): Promise<void> {
   await project.openProjectDialog();

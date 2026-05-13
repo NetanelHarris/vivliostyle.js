@@ -103,6 +103,16 @@ interface ElectronAPI {
     unknownKeys: string[];
   }>;
   configSerialize: (source: string, data: unknown) => Promise<string>;
+
+  // detachable panels
+  openPanel: (
+    panel: "editor" | "preview" | "sidebar",
+    params?: { project?: string },
+  ) => Promise<void>;
+  notifyPreviewUrl: (url: string) => Promise<void>;
+  onPanelClosed: (cb: (data: { panel: string }) => void) => void;
+  onPreviewUrlUpdated: (cb: (data: { url: string }) => void) => void;
+  removePanelListeners: () => void;
 }
 
 interface Window {
