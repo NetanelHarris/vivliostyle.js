@@ -9,7 +9,16 @@
       <i class="pi pi-file-word drop-zone__icon" />
       <p class="drop-zone__text">גרור קובץ DOCX לכאן</p>
       <p class="drop-zone__sub">או</p>
-      <Button label="בחר קובץ" icon="pi pi-upload" @click="triggerInput" />
+      <Button
+        v-if="isElectron"
+        label="פתח קובץ..."
+        icon="pi pi-folder-open"
+        @click="store.openNativeFile()" />
+      <Button
+        v-else
+        label="בחר קובץ"
+        icon="pi pi-upload"
+        @click="triggerInput" />
       <input
         ref="fileInput"
         type="file"
@@ -20,7 +29,18 @@
     <div v-else class="drop-zone__loaded">
       <i class="pi pi-check-circle drop-zone__icon drop-zone__icon--success" />
       <p class="drop-zone__filename">{{ store.file?.name }}</p>
+      <p v-if="store.currentFilePath" class="drop-zone__watched">
+        <i class="pi pi-eye" /> מאזין לשינויים
+      </p>
       <Button
+        v-if="isElectron"
+        label="פתח קובץ אחר..."
+        icon="pi pi-folder-open"
+        severity="secondary"
+        size="small"
+        @click="store.openNativeFile()" />
+      <Button
+        v-else
         label="החלף קובץ"
         icon="pi pi-refresh"
         severity="secondary"
@@ -53,6 +73,7 @@ import ProgressSpinner from "primevue/progressspinner";
 const store = useConverterStore();
 const fileInput = ref<HTMLInputElement | null>(null);
 const isDragging = ref(false);
+const isElectron = !!window.electron;
 
 const hasFile = computed(() => store.file !== null && !store.isLoading);
 
@@ -138,6 +159,15 @@ function onInputChange(e: Event): void {
   font-weight: 600;
   margin: 0;
   color: var(--p-green-700);
+}
+
+.drop-zone__watched {
+  font-size: 0.8rem;
+  color: var(--p-blue-600);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
 }
 
 .drop-zone__input {

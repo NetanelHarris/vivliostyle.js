@@ -2,24 +2,43 @@
   <div class="preview">
     <div class="preview__toolbar">
       <div class="preview__actions">
-        <Button
-          label="הורד HTML"
-          icon="pi pi-file"
-          severity="secondary"
-          :disabled="!store.hasOutput"
-          @click="store.downloadHtml()" />
-        <Button
-          label="הורד VFM"
-          icon="pi pi-file-edit"
-          severity="secondary"
-          :disabled="!store.hasDocument"
-          @click="store.downloadVfm()" />
-        <Button
-          label="הורד ZIP"
-          icon="pi pi-download"
-          severity="secondary"
-          :disabled="!store.hasDocument"
-          @click="store.downloadZip()" />
+        <template v-if="isElectron">
+          <Button
+            label="שמור HTML"
+            icon="pi pi-save"
+            :disabled="!store.hasOutput"
+            @click="store.saveHtmlNative()" />
+          <Button
+            label="שמור VFM"
+            icon="pi pi-save"
+            :disabled="!store.hasVfmOutput"
+            @click="store.saveVfmNative()" />
+          <Button
+            label="שמור ZIP"
+            icon="pi pi-save"
+            :disabled="!store.hasDocument"
+            @click="store.saveZipNative()" />
+        </template>
+        <template v-else>
+          <Button
+            label="הורד HTML"
+            icon="pi pi-file"
+            severity="secondary"
+            :disabled="!store.hasOutput"
+            @click="store.downloadHtml()" />
+          <Button
+            label="הורד VFM"
+            icon="pi pi-file-edit"
+            severity="secondary"
+            :disabled="!store.hasDocument"
+            @click="store.downloadVfm()" />
+          <Button
+            label="הורד ZIP"
+            icon="pi pi-download"
+            severity="secondary"
+            :disabled="!store.hasDocument"
+            @click="store.downloadZip()" />
+        </template>
         <span v-if="store.splitFileCount > 1" class="preview__split-hint">
           יפוצל ל-{{ store.splitFileCount }} קבצים
         </span>
@@ -84,6 +103,7 @@ import TabPanel from "primevue/tabpanel";
 const store = useConverterStore();
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 const isRtl = ref(true);
+const isElectron = !!window.electron;
 const selectedFilename = ref<string>("");
 
 const fileOptions = computed(() =>

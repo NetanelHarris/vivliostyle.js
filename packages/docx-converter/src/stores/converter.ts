@@ -83,6 +83,7 @@ export const useConverterStore = defineStore("converter", () => {
   const rules = ref<MappingRule[]>(initial.rules);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
+  const currentFilePath = ref<string | null>(null);
 
   const hasDocument = computed(() => parsedDoc.value !== null);
 
@@ -175,7 +176,7 @@ export const useConverterStore = defineStore("converter", () => {
     persist();
   }
 
-  async function loadFile(f: File): Promise<void> {
+  async function parseAndLoad(f: File): Promise<void> {
     file.value = f;
     parsedDoc.value = null;
     error.value = null;
@@ -189,6 +190,77 @@ export const useConverterStore = defineStore("converter", () => {
     } finally {
       isLoading.value = false;
     }
+  }
+
+  async function loadFile(f: File): Promise<void> {
+    const api = window.electron;
+    if (api && currentFilePath.value) {
+      void api.unwatchFile();
+      currentFilePath.value = null;
+    }
+    await parseAndLoad(f);
+  }
+
+  async function loadFromElectron(data: {
+    filePath: string;
+    buffer: Uint8Array;
+    name: string;
+  }): Promise<void> {
+    currentFilePath.value = data.filePath;
+    await parseAndLoad(new File([data.buffer], data.name));
+  }
+
+  async function openNativeFile(): Promise<void> {
+    const api = window.electron;
+    if (!api) return;
+    const result = await api.openFile();
+    if (!result) return;
+    if (currentFilePath.value) void api.unwatchFile();
+    await loadFromElectron(result);
+    await api.watchFile(result.filePath);
+  }
+
+  async function saveHtmlNative(): Promise<void> {
+    const api = window.electron;
+    if (!api || !htmlOutput.value) return;
+    const filePath = await api.saveFile("output.html");
+    if (!filePath) return;
+    await api.writeFile(filePath, new TextEncoder().encode(htmlOutput.value));
+  }
+
+  async function saveVfmNative(): Promise<void> {
+    const api = window.electron;
+    if (!api || !vfmOutput.value) return;
+    const filePath = await api.saveFile("output.md");
+    if (!filePath) return;
+    await api.writeFile(filePath, new TextEncoder().encode(vfmOutput.value));
+  }
+
+  async function saveZipNative(): Promise<void> {
+    const api = window.electron;
+    if (!api || !parsedDoc.value) return;
+    const filePath = await api.saveFile("output.zip");
+    if (!filePath) return;
+    const opts = { rules: rules.value, embedImages: false };
+    let blob: Blob;
+    if (splitFileCount.value > 0) {
+      const files = generateHtmlFiles(parsedDoc.value, styleConfig.value, opts).map(
+        (f) => ({ filename: f.filename, content: f.html }),
+      );
+      blob = await buildZipMulti(files, parsedDoc.value.images);
+    } else {
+      blob = await buildZip(
+        generateHtmlWithExternalImages(parsedDoc.value, styleConfig.value, opts),
+        parsedDoc.value.images,
+      );
+    }
+    await api.writeFile(filePath, new Uint8Array(await blob.arrayBuffer()));
+  }
+
+  if (window.electron) {
+    window.electron.onFileChanged((data) => {
+      void loadFromElectron(data);
+    });
   }
 
   function addRule(scope: "paragraph" | "run" = "paragraph"): MappingRule {
@@ -363,6 +435,7 @@ export const useConverterStore = defineStore("converter", () => {
     vfmOutput,
     isLoading,
     error,
+    currentFilePath,
     hasDocument,
     hasOutput,
     hasVfmOutput,
@@ -376,6 +449,10 @@ export const useConverterStore = defineStore("converter", () => {
     splitFileCount,
     previewFiles,
     loadFile,
+    openNativeFile,
+    saveHtmlNative,
+    saveVfmNative,
+    saveZipNative,
     addRule,
     updateRule,
     updateRuleCondition,

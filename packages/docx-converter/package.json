@@ -3,13 +3,18 @@
   "description": "DOCX to HTML converter with style mapping UI",
   "version": "0.1.0",
   "private": true,
+  "main": "out/main/index.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "dev:electron": "electron-vite dev",
+    "build:electron": "electron-vite build",
+    "package": "electron-vite build && electron-builder --win"
   },
   "dependencies": {
     "@fontsource/heebo": "^5.2.8",
+    "chokidar": "^3.6.0",
     "jszip": "^3.10.1",
     "officeparser": "^6.1.0",
     "pinia": "^3.0.4",
@@ -19,7 +24,11 @@
   },
   "devDependencies": {
     "@primevue/themes": "^4.5.4",
+    "@types/node": "^25.7.0",
     "@vitejs/plugin-vue": "^5.2.4",
+    "electron": "^42.0.1",
+    "electron-builder": "^26.8.1",
+    "electron-vite": "^5.0.0",
     "typescript": "^5.9.3",
     "vite": "^5.4.19"
   },
