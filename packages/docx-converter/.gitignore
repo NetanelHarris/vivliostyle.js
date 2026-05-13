@@ -1,3 +1,5 @@
 /dist
+/out
+/dist-electron
 /node_modules
 *.tsbuildinfo
