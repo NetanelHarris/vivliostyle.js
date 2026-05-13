@@ -236,6 +236,35 @@ export const useConverterStore = defineStore("converter", () => {
     await api.writeFile(filePath, new TextEncoder().encode(vfmOutput.value));
   }
 
+  /**
+   * Write the current generated HTML into the given project directory and
+   * return the absolute path of the written file. Uses embedded images so the
+   * output is a single self-contained file the Vivliostyle CLI can consume.
+   */
+  async function addToProject(
+    projectDir: string,
+    options: { subdir?: string; baseName?: string } = {},
+  ): Promise<string> {
+    const api = window.electron;
+    if (!api) throw new Error("Electron API not available");
+    if (!htmlOutput.value) throw new Error("אין פלט HTML — טען DOCX קודם");
+
+    const subdir = options.subdir ?? "imported";
+    const sourceName =
+      options.baseName ??
+      file.value?.name ??
+      currentFilePath.value?.split(/[\\/]/).pop() ??
+      "document.docx";
+    const baseName = sourceName.replace(/\.[^.]+$/, "") || "document";
+    const safeName = baseName.replace(/[<>:"/\\|?*]/g, "_");
+
+    const dir = `${projectDir.replace(/[\\/]$/, "")}/${subdir}`;
+    await api.fsMkdir(dir);
+    const filePath = `${dir}/${safeName}.html`;
+    await api.fsWriteFile(filePath, htmlOutput.value);
+    return filePath;
+  }
+
   async function saveZipNative(): Promise<void> {
     const api = window.electron;
     if (!api || !parsedDoc.value) return;
@@ -244,13 +273,19 @@ export const useConverterStore = defineStore("converter", () => {
     const opts = { rules: rules.value, embedImages: false };
     let blob: Blob;
     if (splitFileCount.value > 0) {
-      const files = generateHtmlFiles(parsedDoc.value, styleConfig.value, opts).map(
-        (f) => ({ filename: f.filename, content: f.html }),
-      );
+      const files = generateHtmlFiles(
+        parsedDoc.value,
+        styleConfig.value,
+        opts,
+      ).map((f) => ({ filename: f.filename, content: f.html }));
       blob = await buildZipMulti(files, parsedDoc.value.images);
     } else {
       blob = await buildZip(
-        generateHtmlWithExternalImages(parsedDoc.value, styleConfig.value, opts),
+        generateHtmlWithExternalImages(
+          parsedDoc.value,
+          styleConfig.value,
+          opts,
+        ),
         parsedDoc.value.images,
       );
     }
@@ -453,6 +488,7 @@ export const useConverterStore = defineStore("converter", () => {
     saveHtmlNative,
     saveVfmNative,
     saveZipNative,
+    addToProject,
     addRule,
     updateRule,
     updateRuleCondition,

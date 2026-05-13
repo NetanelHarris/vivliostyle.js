@@ -2,6 +2,11 @@ import { app, BrowserWindow, ipcMain, dialog } from "electron";
 import { join } from "path";
 import { readFile, writeFile } from "fs/promises";
 import { watchFile, unwatchFile } from "./file-watcher.js";
+import { registerFsHandlers } from "./fs-handlers.js";
+import { registerVivliostyleHandlers } from "./vivliostyle.js";
+import { registerConfigCodecHandlers } from "./config-codec.js";
+
+let mainWindow: BrowserWindow | null = null;
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -25,6 +30,10 @@ function createWindow(): BrowserWindow {
 
 app.whenReady().then(() => {
   const win = createWindow();
+  mainWindow = win;
+  registerFsHandlers(() => mainWindow);
+  registerVivliostyleHandlers(() => mainWindow);
+  registerConfigCodecHandlers();
 
   ipcMain.handle("dialog:openFile", async () => {
     const result = await dialog.showOpenDialog(win, {
